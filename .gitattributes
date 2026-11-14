@@ -1,0 +1,7 @@
+# 改行は LF に固定する（Windows 側で core.autocrlf=true でも、スクリプトが Linux で動くように）
+* text=auto eol=lf
+
+*.bat      text eol=crlf
+
+# 結のデータファイルはバイナリ（改行を変換されると壊れる）
+*.yui      binary
