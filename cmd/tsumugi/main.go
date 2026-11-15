@@ -8,13 +8,13 @@ import (
 
 const usage = `使い方: tsumugi <コマンド>
 
-  status        所属ごとに、望む状態（所属.json）と実際（claude agents）を並べる
-  run           望む状態に寄せる（足りないものを起こし、紡が起こして要らなくなったものを止める）
-  run --dry     やることを出すだけで、何もしない
-  list          紡のセッションを名前で並べる
-  attach <名前>  名前で開く（止まっていれば同じ会話のまま起こしてから）
-  install       OS の定期実行に run を登録する（--dry で書くものを見るだけ）
-  uninstall     その登録を外す
+  status              所属ごとに、望む状態（所属.json）と実際（claude agents）を並べる
+  run [--dry]         望む状態に寄せる（--dry はやることを出すだけ）
+  list, l             紡のセッションを番号・名前で並べる
+  attach, a <名前|番号|ID>
+                      開く（止まっていれば同じ会話のまま起こしてから）
+  install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
+  uninstall           その登録を外す
 
 所属の設定は $TSUMUGI_HOME/<所属>/所属.json（TSUMUGI_HOME が無ければ ~/.tsumugi）。
 `
@@ -28,11 +28,11 @@ func main() {
 	switch os.Args[1] {
 	case "status":
 		err = cmdStatus()
-	case "list":
+	case "list", "l":
 		err = cmdList()
-	case "attach":
+	case "attach", "a":
 		if len(os.Args) < 3 {
-			fmt.Fprint(os.Stderr, "使い方: tsumugi attach <名前>\n")
+			fmt.Fprint(os.Stderr, "使い方: tsumugi a <名前|番号>\n")
 			os.Exit(2)
 		}
 		err = cmdAttach(os.Args[2])

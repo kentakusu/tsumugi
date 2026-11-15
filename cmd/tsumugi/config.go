@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -108,6 +109,9 @@ func loadAffiliation(p string) (affiliation, error) {
 	for i, s := range a.Sessions {
 		if s.Name == "" {
 			return a, fmt.Errorf("%s: %d 番目のセッションに「名前」がありません", p, i+1)
+		}
+		if _, err := strconv.Atoi(s.Name); err == nil {
+			return a, fmt.Errorf("%s: セッション名「%s」は数字だけなので使えません（tsumugi a <番号> と区別できない）", p, s.Name)
 		}
 		if seen[s.Name] {
 			return a, fmt.Errorf("%s: セッション名「%s」が重複しています", p, s.Name)

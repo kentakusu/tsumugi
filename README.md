@@ -39,8 +39,8 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 |---|---|
 | `tsumugi status` | 在る。所属ごとに「要るセッション」と「実際に動いているもの」を並べる |
 | `tsumugi run` | 在る。足りないものを起こし、紡が起こして要らなくなったものを止める（1 回流して終わる。`--dry` で見るだけ） |
-| `tsumugi list` | 在る。紡のセッションを名前で並べる |
-| `tsumugi attach <名前>` | 在る。名前で開く。止まっていれば同じ会話のまま起こしてから開く |
+| `tsumugi list`（`l`） | 在る。紡のセッションを番号・名前で並べる |
+| `tsumugi attach`（`a`）`<名前\|番号\|ID>` | 在る。開く。番号は `list` の左端。止まっていれば同じ会話のまま起こしてから開く |
 | `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）で確かめた。macOS（launchd）・Windows（タスク スケジューラ）は書いただけ |
 
 設計は [docs/設計.md](docs/設計.md)、日々の使い方（前面と背景の行き来など）は [docs/使い方.md](docs/使い方.md)。

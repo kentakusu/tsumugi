@@ -49,6 +49,7 @@ func TestLoadAffiliationRejects(t *testing.T) {
 		"知らないキー":   `{"表示名":"x","セッッション":[]}`,
 		"名前が無い":    `{"表示名":"x","セッション":[{"作業フォルダ":"/w"}]}`,
 		"名前が重複":    `{"表示名":"x","セッション":[{"名前":"a"},{"名前":"a"}]}`,
+		"名前が数字だけ":  `{"表示名":"x","セッション":[{"名前":"12"}]}`,
 		"JSON でない": `表示名: x`,
 	}
 	for name, body := range cases {
@@ -194,5 +195,20 @@ func TestListAndOnly(t *testing.T) {
 	acts := plan([]affiliation{onlySession(affs[0], affs[0].Sessions[1])}, st, all)
 	if len(acts) != 1 || acts[0].Name != "b" || acts[0].Verb != "起こし直す" {
 		t.Fatalf("絞ったときのやることが違う: %+v", acts)
+	}
+}
+
+func TestResolveName(t *testing.T) {
+	affs := []affiliation{
+		{ID: "a", Sessions: []sessionSpec{{Name: "x"}, {Name: "y"}}},
+		{ID: "b", Sessions: []sessionSpec{{Name: "z"}}},
+	}
+	for arg, want := range map[string]string{"1": "x", "3": "z", "y": "y"} {
+		if got, err := resolveName(affs, arg); err != nil || got != want {
+			t.Fatalf("%s → %s %v（%s のはず）", arg, got, err, want)
+		}
+	}
+	if _, err := resolveName(affs, "4"); err == nil {
+		t.Fatal("無い番号を通した")
 	}
 }

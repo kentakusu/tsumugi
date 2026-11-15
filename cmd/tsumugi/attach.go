@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"text/tabwriter"
 	"time"
 )
@@ -14,16 +15,18 @@ import (
 // 紡が見ているセッションを短く並べる。
 func printList(w io.Writer, affs []affiliation, all []agent) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "名前\t所属\t実際\tID\t作業フォルダ")
+	fmt.Fprintln(tw, "番号\t名前\t所属\t実際\tID\t作業フォルダ")
+	n := 0
 	for _, af := range affs {
 		for _, s := range af.Sessions {
+			n++
 			state, id := "止まっている", "-"
 			if a, ok := newestRunning(all, s.Name); ok {
 				state, id = a.Status, a.ID
 			} else if a, ok := newest(all, s.Name); ok {
 				id = a.ID
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.Name, af.ID, state, id, s.Dir)
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", n, s.Name, af.ID, state, id, s.Dir)
 		}
 	}
 	tw.Flush()
@@ -51,13 +54,35 @@ func findSpec(affs []affiliation, name string) (affiliation, sessionSpec, bool) 
 	return affiliation{}, sessionSpec{}, false
 }
 
-// 名前で開く。紡のセッションが止まっていれば、同じ会話のまま起こしてから開く。
-func cmdAttach(name string) error {
+// list の番号を名前に直す。番号は所属（フォルダ名順）→ 所属.json の並び順で振る。
+// 数字だけの名前は番号として読む（セッション名を数字だけにしない）。
+func resolveName(affs []affiliation, arg string) (string, error) {
+	n, err := strconv.Atoi(arg)
+	if err != nil {
+		return arg, nil
+	}
+	i := 0
+	for _, af := range affs {
+		for _, s := range af.Sessions {
+			if i++; i == n {
+				return s.Name, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("番号 %d のセッションは在りません（tsumugi list で見られます）", n)
+}
+
+// 名前（または list の番号）で開く。紡のセッションが止まっていれば、同じ会話のまま起こしてから開く。
+func cmdAttach(arg string) error {
 	root, err := homeDir()
 	if err != nil {
 		return err
 	}
 	affs, err := loadAffiliations(root)
+	if err != nil {
+		return err
+	}
+	name, err := resolveName(affs, arg)
 	if err != nil {
 		return err
 	}
@@ -70,6 +95,9 @@ func cmdAttach(name string) error {
 		af, s, managed := findSpec(affs, name)
 		if !managed {
 			if a, ok = newest(all, name); !ok {
+				a, ok = byID(all, name)
+			}
+			if !ok {
 				return fmt.Errorf("「%s」というセッションは在りません（tsumugi list で見られます）", name)
 			}
 		} else {
@@ -100,6 +128,16 @@ func waitRunning(name string, d time.Duration) (agent, bool) {
 			if a, ok := newestRunning(all, name); ok {
 				return a, true
 			}
+		}
+	}
+	return agent{}, false
+}
+
+// claude の短い ID（list の ID 列）で探す。
+func byID(all []agent, id string) (agent, bool) {
+	for _, a := range all {
+		if a.ID == id {
+			return a, true
 		}
 	}
 	return agent{}, false
