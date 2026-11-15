@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,7 +148,7 @@ func TestPlan(t *testing.T) {
 	if a := got["a-old"]; a.Verb != "起こし直す" || strings.Join(a.Args, " ") != "--bg --resume s-old" {
 		t.Fatalf("起こし直しはフラグ無しの --resume のはず: %+v", a)
 	}
-	if a := strings.Join(got["a-new"].Args, " "); !strings.Contains(a, "-n a-new") || !strings.Contains(a, `"autoMemoryEnabled":false`) ||
+	if a := strings.Join(got["a-new"].Args, " "); !strings.Contains(a, "-n a-new") || !strings.Contains(a, `"autoMemoryEnabled":false`) || !strings.Contains(a, `"TSUMUGI_SESSION":"a-new"`) || !strings.Contains(a, "tsumugi yui") ||
 		!strings.Contains(a, "--permission-mode dontAsk") || !strings.HasSuffix(a, "待機") {
 		t.Fatalf("新しく起こす引数が違う: %s", a)
 	}
@@ -227,5 +231,43 @@ func TestMachine(t *testing.T) {
 	printListOn(&buf, "my-pc", affs, nil)
 	if out := buf.String(); !strings.Contains(out, "my-pc") || !strings.Contains(out, "（よそのマシン）") || !strings.Contains(out, "other-pc") {
 		t.Fatalf("list にマシンが出ていない:\n%s", out)
+	}
+}
+
+// 偽のデーモン: 長さの行＋本文を読み、決まった返りを返す。
+func TestYuiAsk(t *testing.T) {
+	c, d := net.Pipe()
+	got := make(chan []string, 1)
+	go func() {
+		r := bufio.NewReader(d)
+		var qs []string
+		for i := 0; i < 3; i++ {
+			var n int
+			if _, err := fmt.Fscanf(r, "%d\n", &n); err != nil {
+				break
+			}
+			b := make([]byte, n)
+			io.ReadFull(r, b)
+			qs = append(qs, string(b))
+			rc := 0
+			if i == 2 {
+				rc = 1
+			}
+			fmt.Fprintf(d, "{\"kind\":\"node\",\"label\":\"x\"}\n{\"kind\":\"end\",\"rc\":%d}\n", rc)
+		}
+		got <- qs
+		d.Close()
+	}()
+	var out bytes.Buffer
+	ok, err := yuiAsk(c, &out, `a/b"c@m`, []string{"一覧 (決定:)", "壊れた"})
+	if err != nil || ok {
+		t.Fatalf("2 件目の rc=1 で ok=false のはず: %v %v", ok, err)
+	}
+	qs := <-got
+	if len(qs) != 3 || qs[0] != `名乗る "a/b\"c@m"` || qs[1] != "一覧 (決定:)" {
+		t.Fatalf("送ったものが違う: %q", qs)
+	}
+	if strings.Count(out.String(), "node") != 2 {
+		t.Fatalf("問い合わせの返りだけ出すはず（名乗りの返りは出さない）:\n%s", out.String())
 	}
 }

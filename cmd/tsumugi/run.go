@@ -53,7 +53,7 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 				// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
 				act.Verb, act.Args = "起こし直す", []string{"--bg", "--resume", prev.SessionID}
 			} else {
-				act.Verb, act.Args = "起こす", startArgs(s)
+				act.Verb, act.Args = "起こす", startArgs(af.ID, s)
 				if s.From != "" {
 					act.Verb = "写して起こす"
 				}
@@ -81,9 +81,18 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 	return acts
 }
 
-func startArgs(s sessionSpec) []string {
-	settings, _ := json.Marshal(fixedSettings)
-	args := []string{"--bg", "-n", s.Name, "--settings", string(settings)}
+// 紡のセッションに必ず渡す決まり。
+const yuiRule = "知識（結・yui）は必ず `tsumugi yui '<問い合わせ>'` で、結のデーモンを通して読み書きする。" +
+	"yui コマンドで .yui ファイルを直接開かない。デーモンにつながらないときは、人に知らせて待つ。" +
+	"Claude Code のローカルメモリには書かない。"
+
+func startArgs(aff string, s sessionSpec) []string {
+	set := map[string]any{"env": map[string]string{"TSUMUGI_AFFILIATION": aff, "TSUMUGI_SESSION": s.Name}}
+	for k, v := range fixedSettings {
+		set[k] = v
+	}
+	settings, _ := json.Marshal(set)
+	args := []string{"--bg", "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule}
 	if s.Permission != "" {
 		args = append(args, "--permission-mode", s.Permission)
 	}

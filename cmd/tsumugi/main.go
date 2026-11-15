@@ -13,6 +13,7 @@ const usage = `使い方: tsumugi <コマンド>
   list, l             紡のセッションを番号・名前で並べる
   attach, a <名前|番号|ID>
                       開く（止まっていれば同じ会話のまま起こしてから）
+  yui <問い合わせ>…    結のデーモンに名乗って問い合わせる（無ければ標準入力を 1 件として）
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
 
@@ -39,6 +40,8 @@ func main() {
 	case "install", "uninstall":
 		dry := len(os.Args) > 2 && os.Args[2] == "--dry"
 		err = cmdInstall(dry, os.Args[1] == "uninstall")
+	case "yui":
+		err = cmdYui(os.Args[2:])
 	case "run":
 		dry := len(os.Args) > 2 && os.Args[2] == "--dry"
 		err = cmdRun(dry)
