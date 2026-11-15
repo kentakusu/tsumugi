@@ -25,7 +25,7 @@ import (
 // 手元の全体設定（<手元>/紡.json）。所属をまたぐもの。
 type globalConfig struct {
 	Yui struct {
-		Addr string `json:"アドレス"` // 例 127.0.0.1:39210
+		Addr string `json:"アドレス"` // 例 127.0.0.1:7952
 	} `json:"結"`
 }
 
@@ -91,6 +91,7 @@ func yuiQuote(s string) string {
 type yuiLine struct {
 	Kind string `json:"kind"`
 	RC   *int   `json:"rc"`
+	Cut  bool   `json:"cut"` // 返りが上限で打ち切られた（これで全部ではない）
 }
 
 // 1 本の接続で、名乗ってから問い合わせを順に投げる。返りの行はそのまま w へ。
@@ -116,6 +117,11 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, name string, queries []string) (boo
 			}
 			if l.Kind == "end" {
 				if l.RC == nil || *l.RC != 0 {
+					ok = false
+				}
+				if l.Cut {
+					// ★打ち切りを「これで全部」と読ませない
+					fmt.Fprintf(os.Stderr, "tsumugi: 返りが上限で打ち切られました（これで全部ではありません）: %s\n", q)
 					ok = false
 				}
 				return nil

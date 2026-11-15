@@ -249,11 +249,11 @@ func TestYuiAsk(t *testing.T) {
 			b := make([]byte, n)
 			io.ReadFull(r, b)
 			qs = append(qs, string(b))
-			rc := 0
+			end := `{"kind":"end","rc":0}`
 			if i == 2 {
-				rc = 1
+				end = `{"kind":"end","rc":0,"cut":true}` // rc=0 でも打ち切りは失敗に数える
 			}
-			fmt.Fprintf(d, "{\"kind\":\"node\",\"label\":\"x\"}\n{\"kind\":\"end\",\"rc\":%d}\n", rc)
+			fmt.Fprintf(d, "{\"kind\":\"node\",\"label\":\"x\"}\n%s\n", end)
 		}
 		got <- qs
 		d.Close()
@@ -261,7 +261,7 @@ func TestYuiAsk(t *testing.T) {
 	var out bytes.Buffer
 	ok, err := yuiAsk(c, &out, `a/b"c@m`, []string{"一覧 (決定:)", "壊れた"})
 	if err != nil || ok {
-		t.Fatalf("2 件目の rc=1 で ok=false のはず: %v %v", ok, err)
+		t.Fatalf("2 件目の打ち切り（cut）で ok=false のはず: %v %v", ok, err)
 	}
 	qs := <-got
 	if len(qs) != 3 || qs[0] != `名乗る "a/b\"c@m"` || qs[1] != "一覧 (決定:)" {
