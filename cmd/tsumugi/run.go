@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
+	"time"
 )
 
 // 紡が起こすセッションに必ず付ける設定。ローカルメモリに頼らない（README「決めていること」）。
@@ -132,6 +134,19 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	if err != nil {
 		return err
 	}
+	// 定時を先に届ける（止まっているものは、指示を付けて起こすので、下の「起こし直す」と重ならない）。
+	if delivered, err := deliverSchedules(w, affs, states, all, time.Now(), dry); err != nil {
+		return err
+	} else if delivered && !dry {
+		for _, af := range affs {
+			if err := saveState(af, states[af.ID]); err != nil {
+				return err
+			}
+		}
+		if all, err = listAllAgents(); err != nil {
+			return err
+		}
+	}
 	acts := plan(affs, states, all)
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
@@ -157,6 +172,9 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			}
 		}
 		fmt.Fprintln(w, " … した")
+		if act.Verb != "止める" {
+			waitRunning(act.Name, 15*time.Second) // 起こした直後は claude agents にまだ出ないことがある
+		}
 		if act.Verb == "止める" {
 			delete(states[act.Affiliation].Sessions, act.Name)
 		}
@@ -181,7 +199,11 @@ func record(affs []affiliation, states map[string]affState, all []agent) error {
 		st := states[af.ID]
 		for _, s := range af.Sessions {
 			if a, ok := newestRunning(all, s.Name); ok {
-				st.Sessions[s.Name] = sessionState{SessionID: a.SessionID}
+				prev := st.Sessions[s.Name]
+				if prev.SessionID != a.SessionID {
+					prev.SessionID = a.SessionID
+				}
+				st.Sessions[s.Name] = prev
 			}
 		}
 		if err := saveState(af, st); err != nil {
@@ -189,4 +211,104 @@ func record(affs []affiliation, states map[string]affState, all []agent) error {
 		}
 	}
 	return nil
+}
+
+// 届けるもの 1 つ。
+type delivery struct {
+	Affiliation, Name, Dir, SessionID, Prompt string
+	Running                                   *agent            // 動いていれば
+	Keys                                      map[string]string // 定時の鍵 → 発火時刻
+}
+
+// いま届けるべき定時を選ぶ（claude は呼ばない）。
+func dueDeliveries(machine string, affs []affiliation, states map[string]affState, all []agent, now time.Time) []delivery {
+	var out []delivery
+	for _, af := range affs {
+		st := states[af.ID]
+		for _, s := range af.Sessions {
+			if !s.here(machine) || len(s.Schedules) == 0 {
+				continue
+			}
+			prev, ok := st.Sessions[s.Name]
+			if !ok || prev.SessionID == "" {
+				continue // まだ一度も起こしていない（最初の起動に任せる）
+			}
+			d := delivery{Affiliation: af.ID, Name: s.Name, Dir: s.Dir, SessionID: prev.SessionID, Keys: map[string]string{}}
+			var prompts []string
+			for _, sc := range s.Schedules {
+				due := sc.lastDue(now)
+				if due.IsZero() {
+					continue
+				}
+				k, at := scheduleKey(sc), due.Format(time.RFC3339)
+				if prev.Delivered[k] >= at {
+					continue
+				}
+				d.Keys[k] = at
+				prompts = append(prompts, sc.Prompt)
+			}
+			if len(prompts) == 0 {
+				continue
+			}
+			d.Prompt = "【定時】" + strings.Join(prompts, "\n【定時】")
+			if a, ok := newestRunning(all, s.Name); ok {
+				d.Running = &a
+			}
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+func deliverSchedules(w io.Writer, affs []affiliation, states map[string]affState, all []agent, now time.Time, dry bool) (bool, error) {
+	ds := dueDeliveries(thisMachine(), affs, states, all, now)
+	any := false
+	for _, d := range ds {
+		fmt.Fprintf(w, "%s/%s: 定時を届ける", d.Affiliation, d.Name)
+		if d.Running != nil && d.Running.Status != "idle" {
+			fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
+			continue
+		}
+		if dry {
+			fmt.Fprintf(w, "（しない）%q\n", d.Prompt)
+			continue
+		}
+		if d.Running != nil {
+			if _, err := runClaude("stop", d.Running.ID); err != nil {
+				fmt.Fprintln(w, " … 止められず失敗")
+				continue
+			}
+			if !waitStopped(d.Name, 20*time.Second) {
+				fmt.Fprintln(w, " … 止まりきらず失敗")
+				continue
+			}
+		}
+		if _, err := runClaudeIn(d.Dir, "--bg", "--resume", d.SessionID, d.Prompt); err != nil {
+			fmt.Fprintln(w, " … 失敗:", err)
+			continue
+		}
+		fmt.Fprintln(w, " … した")
+		st := states[d.Affiliation]
+		ss := st.Sessions[d.Name]
+		if ss.Delivered == nil {
+			ss.Delivered = map[string]string{}
+		}
+		for k, at := range d.Keys {
+			ss.Delivered[k] = at
+		}
+		st.Sessions[d.Name] = ss
+		any = true
+	}
+	return any, nil
+}
+
+func waitStopped(name string, d time.Duration) bool {
+	for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(time.Second) {
+		if all, err := listAllAgents(); err == nil {
+			if _, ok := newestRunning(all, name); !ok {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeAff(t *testing.T, root, id, body string) {
@@ -135,7 +136,7 @@ func TestPlan(t *testing.T) {
 		{Name: "a-copy", From: "s-hand"},
 	}}}
 	states := map[string]affState{"x": {Sessions: map[string]sessionState{
-		"a-run": {"s-run"}, "a-old": {"s-old"}, "a-gone": {"s-gone"},
+		"a-run": {SessionID: "s-run"}, "a-old": {SessionID: "s-old"}, "a-gone": {SessionID: "s-gone"},
 	}}}
 	acts := plan(affs, states, all)
 	got := map[string]action{}
@@ -195,7 +196,7 @@ func TestListAndOnly(t *testing.T) {
 		t.Fatalf("list が違う:\n%s", out)
 	}
 	// 1 本だけ起こすときは、ほかのセッションを止めない
-	st := map[string]affState{"x": {Sessions: map[string]sessionState{"b": {"b1"}, "c": {"c1"}}}}
+	st := map[string]affState{"x": {Sessions: map[string]sessionState{"b": {SessionID: "b1"}, "c": {SessionID: "c1"}}}}
 	acts := plan([]affiliation{onlySession(affs[0], affs[0].Sessions[1])}, st, all)
 	if len(acts) != 1 || acts[0].Name != "b" || acts[0].Verb != "起こし直す" {
 		t.Fatalf("絞ったときのやることが違う: %+v", acts)
@@ -222,7 +223,7 @@ func TestMachine(t *testing.T) {
 		{Name: "here", Prompt: "p"},
 		{Name: "there", Machine: "other-pc", Prompt: "p"},
 	}}}
-	st := map[string]affState{"x": {Sessions: map[string]sessionState{"there": {"s1"}}}}
+	st := map[string]affState{"x": {Sessions: map[string]sessionState{"there": {SessionID: "s1"}}}}
 	acts := planOn("my-pc", affs, st, nil)
 	if len(acts) != 1 || acts[0].Name != "here" {
 		t.Fatalf("よそのマシンのものは起こさず止めないはず: %+v", acts)
@@ -269,5 +270,48 @@ func TestYuiAsk(t *testing.T) {
 	}
 	if strings.Count(out.String(), "node") != 2 {
 		t.Fatalf("問い合わせの返りだけ出すはず（名乗りの返りは出さない）:\n%s", out.String())
+	}
+}
+
+func TestCron(t *testing.T) {
+	c, err := parseCron("0 9,13,18 * * 1-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mon := time.Date(2026, 11, 16, 13, 0, 0, 0, time.Local) // 月曜
+	if !c.match(mon) || c.match(mon.Add(time.Minute)) || c.match(mon.AddDate(0, 0, -1)) {
+		t.Fatal("cron の当たりが違う")
+	}
+	for _, bad := range []string{"0 9 * *", "61 * * * *", "x * * * *", "*/0 * * * *"} {
+		if _, err := parseCron(bad); err == nil {
+			t.Fatalf("%q を通した", bad)
+		}
+	}
+	if c, _ := parseCron("*/15 * * * 7"); !c.match(time.Date(2026, 11, 15, 10, 45, 0, 0, time.Local)) {
+		t.Fatal("*/15 と日曜=7 が効いていない")
+	}
+}
+
+func TestDueDeliveries(t *testing.T) {
+	now := time.Date(2026, 11, 16, 13, 3, 0, 0, time.Local)
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{
+		{Name: "a", Schedules: []scheduleSpec{
+			{Cron: "0 13 * * *", Prompt: "昼"},
+			{Cron: "0 9 * * *", Prompt: "朝"}, // 4 時間前＝猶予の外
+			{Once: "2026-11-16 12:30", Prompt: "一度"},
+		}},
+		{Name: "never", Schedules: []scheduleSpec{{Cron: "0 13 * * *", Prompt: "p"}}},
+	}}}
+	st := map[string]affState{"x": {Sessions: map[string]sessionState{"a": {SessionID: "sa"}}}}
+	ds := dueDeliveries("m", affs, st, []agent{{Name: "a", Pid: 1, ID: "ia", Status: "idle", StartedAt: 1}}, now)
+	if len(ds) != 1 || ds[0].Prompt != "【定時】昼\n【定時】一度" || ds[0].Running == nil || len(ds[0].Keys) != 2 {
+		t.Fatalf("届けるものが違う: %+v", ds)
+	}
+	// 届けたあとは、同じ発火を二度届けない
+	ss := st["x"].Sessions["a"]
+	ss.Delivered = ds[0].Keys
+	st["x"].Sessions["a"] = ss
+	if ds := dueDeliveries("m", affs, st, nil, now.Add(time.Minute)); len(ds) != 0 {
+		t.Fatalf("二度届けている: %+v", ds)
 	}
 }

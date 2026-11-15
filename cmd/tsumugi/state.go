@@ -18,6 +18,8 @@ const stateFile = "状態.json"
 
 type sessionState struct {
 	SessionID string `json:"会話"`
+	// 定時ごとに、最後に届けた（または諦めた）発火時刻。
+	Delivered map[string]string `json:"定時,omitempty"`
 }
 
 type affState struct {

@@ -31,6 +31,8 @@ type sessionSpec struct {
 	From string `json:"引き継ぐ会話,omitempty"`
 	// 動かすマシン（ホスト名）。空ならどのマシンでも。合わないマシンの紡は起こさず・止めない。
 	Machine string `json:"マシン,omitempty"`
+	// 決まった時刻に届ける指示。
+	Schedules []scheduleSpec `json:"定時,omitempty"`
 }
 
 // このマシンの名前。WSL では必ず「ホスト名/ディストロ名」にする。
@@ -136,6 +138,11 @@ func loadAffiliation(p string) (affiliation, error) {
 			return a, fmt.Errorf("%s: セッション名「%s」が重複しています", p, s.Name)
 		}
 		seen[s.Name] = true
+		for j, sc := range s.Schedules {
+			if err := sc.validate(); err != nil {
+				return a, fmt.Errorf("%s: 「%s」の %d 番目の定時: %w", p, s.Name, j+1, err)
+			}
+		}
 		a.Sessions[i].Dir = expandHome(s.Dir)
 	}
 	return a, nil
