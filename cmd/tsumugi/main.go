@@ -1,6 +1,6 @@
 // tsumugi — Claude Code を所属ごとに無人で常駐させる。
 //
-// いま在るのは status だけ（run・install はこれから）。
+// いま在るのは status と run（install はこれから）。
 package main
 
 import (
@@ -10,7 +10,9 @@ import (
 
 const usage = `使い方: tsumugi <コマンド>
 
-  status   所属ごとに、望む状態（所属.json）と実際（claude agents）を並べる
+  status        所属ごとに、望む状態（所属.json）と実際（claude agents）を並べる
+  run           望む状態に寄せる（足りないものを起こし、紡が起こして要らなくなったものを止める）
+  run --dry     やることを出すだけで、何もしない
 
 所属の設定は $TSUMUGI_HOME/<所属>/所属.json（TSUMUGI_HOME が無ければ ~/.tsumugi）。
 `
@@ -24,6 +26,9 @@ func main() {
 	switch os.Args[1] {
 	case "status":
 		err = cmdStatus()
+	case "run":
+		dry := len(os.Args) > 2 && os.Args[2] == "--dry"
+		err = cmdRun(dry)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return
@@ -55,4 +60,16 @@ func cmdStatus() error {
 	}
 	printStatus(os.Stdout, compare(affs, as))
 	return nil
+}
+
+func cmdRun(dry bool) error {
+	root, err := homeDir()
+	if err != nil {
+		return err
+	}
+	affs, err := loadAffiliations(root)
+	if err != nil {
+		return err
+	}
+	return reconcile(os.Stdout, affs, dry)
 }

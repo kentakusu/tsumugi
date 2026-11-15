@@ -23,6 +23,11 @@ type sessionSpec struct {
 	Prompt  string `json:"最初の指示"`
 	Model   string `json:"モデル,omitempty"`
 	Comment string `json:"メモ,omitempty"`
+	// 権限モード（claude --permission-mode）。無人なので決めておく。
+	Permission string `json:"権限モード,omitempty"`
+	// 既存の会話（セッション ID）を写して始める。ほかの場所で始めた会話を
+	// 紡に移すときに使う。紡が一度起こしたあとは見ない（状態.json が優先）。
+	From string `json:"引き継ぐ会話,omitempty"`
 }
 
 // 所属.json の中身。

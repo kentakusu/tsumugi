@@ -1,0 +1,162 @@
+package main
+
+// 望む状態に寄せる。足りないものを起こし、紡が起こしたのに要らなくなったものを止める。
+//
+// 紡が起こしていないセッション（手で開いたものなど）には触らない。
+// 何度流しても同じ結果になる（揃っていれば何もしない）。
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+)
+
+// 紡が起こすセッションに必ず付ける設定。ローカルメモリに頼らない（README「決めていること」）。
+var fixedSettings = map[string]any{"autoMemoryEnabled": false}
+
+// やること 1 つ。
+type action struct {
+	Affiliation string
+	Name        string
+	Verb        string // 起こす / 起こし直す / 写して起こす / 止める
+	Dir         string
+	Args        []string
+}
+
+// 突き合わせて、やることを決める（claude は呼ばない）。
+func plan(affs []affiliation, states map[string]affState, all []agent) []action {
+	running := map[string]agent{}
+	for _, a := range all {
+		if a.Pid > 0 {
+			running[a.Name] = a
+		}
+	}
+	var acts []action
+	for _, af := range affs {
+		st := states[af.ID]
+		want := map[string]bool{}
+		for _, s := range af.Sessions {
+			want[s.Name] = true
+			if _, ok := running[s.Name]; ok {
+				continue
+			}
+			act := action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}
+			if prev, ok := st.Sessions[s.Name]; ok && prev.SessionID != "" {
+				// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
+				act.Verb, act.Args = "起こし直す", []string{"--bg", "--resume", prev.SessionID}
+			} else {
+				act.Verb, act.Args = "起こす", startArgs(s)
+				if s.From != "" {
+					act.Verb = "写して起こす"
+				}
+			}
+			acts = append(acts, act)
+		}
+		var gone []string
+		for name := range st.Sessions {
+			if !want[name] {
+				gone = append(gone, name)
+			}
+		}
+		sort.Strings(gone)
+		for _, name := range gone {
+			act := action{Affiliation: af.ID, Name: name, Verb: "止める"}
+			if a, ok := running[name]; ok && a.SessionID == st.Sessions[name].SessionID {
+				act.Args = []string{"stop", a.ID}
+			}
+			acts = append(acts, act) // Args が空なら控えから消すだけ
+		}
+	}
+	return acts
+}
+
+func startArgs(s sessionSpec) []string {
+	settings, _ := json.Marshal(fixedSettings)
+	args := []string{"--bg", "-n", s.Name, "--settings", string(settings)}
+	if s.Permission != "" {
+		args = append(args, "--permission-mode", s.Permission)
+	}
+	if s.Model != "" {
+		args = append(args, "--model", s.Model)
+	}
+	if s.From != "" {
+		return append(args, "--resume", s.From) // 動いている会話なら写しになる
+	}
+	if s.Prompt != "" {
+		args = append(args, s.Prompt)
+	}
+	return args
+}
+
+// 動いている同名のうち、いちばん新しいもの。
+func newestRunning(all []agent, name string) (agent, bool) {
+	var best agent
+	for _, a := range all {
+		if a.Name == name && a.Pid > 0 && a.StartedAt > best.StartedAt {
+			best = a
+		}
+	}
+	return best, best.Name != ""
+}
+
+func reconcile(w io.Writer, affs []affiliation, dry bool) error {
+	states := map[string]affState{}
+	for _, af := range affs {
+		st, err := loadState(af)
+		if err != nil {
+			return err
+		}
+		states[af.ID] = st
+	}
+	all, err := listAllAgents()
+	if err != nil {
+		return err
+	}
+	acts := plan(affs, states, all)
+	if len(acts) == 0 {
+		fmt.Fprintln(w, "揃っています。")
+		return nil
+	}
+	var firstErr error
+	for _, act := range acts {
+		fmt.Fprintf(w, "%s/%s: %s", act.Affiliation, act.Name, act.Verb)
+		if dry {
+			fmt.Fprintf(w, "（しない）claude %q\n", act.Args)
+			continue
+		}
+		if len(act.Args) > 0 {
+			if _, err := runClaudeIn(act.Dir, act.Args...); err != nil {
+				fmt.Fprintln(w, " … 失敗")
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+		}
+		fmt.Fprintln(w, " … した")
+		if act.Verb == "止める" {
+			delete(states[act.Affiliation].Sessions, act.Name)
+		}
+	}
+	if dry {
+		return nil
+	}
+	// 起こしたものの会話 ID を控える（次に止まったとき同じ会話を続けるため）。
+	all, err = listAllAgents()
+	if err != nil {
+		return err
+	}
+	for _, af := range affs {
+		st := states[af.ID]
+		for _, s := range af.Sessions {
+			if a, ok := newestRunning(all, s.Name); ok {
+				st.Sessions[s.Name] = sessionState{SessionID: a.SessionID}
+			}
+		}
+		if err := saveState(af, st); err != nil {
+			return err
+		}
+	}
+	return firstErr
+}

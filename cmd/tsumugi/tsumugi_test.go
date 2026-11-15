@@ -115,3 +115,45 @@ func TestParseAgentsBroken(t *testing.T) {
 		t.Fatal("壊れた出力を通した")
 	}
 }
+
+func TestPlan(t *testing.T) {
+	all := []agent{
+		{Name: "a-run", Pid: 1, SessionID: "s-run", ID: "s-run"},
+		{Name: "a-old", SessionID: "s-old"},                    // 止まっている
+		{Name: "a-gone", Pid: 2, SessionID: "s-gone", ID: "g"}, // 設定から消えた
+		{Name: "hand", Pid: 3, SessionID: "s-hand"},            // 手で開いたもの
+	}
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{
+		{Name: "a-run"},
+		{Name: "a-old"},
+		{Name: "a-new", Prompt: "待機", Permission: "dontAsk"},
+		{Name: "a-copy", From: "s-hand"},
+	}}}
+	states := map[string]affState{"x": {Sessions: map[string]sessionState{
+		"a-run": {"s-run"}, "a-old": {"s-old"}, "a-gone": {"s-gone"},
+	}}}
+	acts := plan(affs, states, all)
+	got := map[string]action{}
+	for _, a := range acts {
+		got[a.Name] = a
+	}
+	if _, ok := got["a-run"]; ok || len(acts) != 4 {
+		t.Fatalf("やることが違う: %+v", acts)
+	}
+	if a := got["a-old"]; a.Verb != "起こし直す" || strings.Join(a.Args, " ") != "--bg --resume s-old" {
+		t.Fatalf("起こし直しはフラグ無しの --resume のはず: %+v", a)
+	}
+	if a := strings.Join(got["a-new"].Args, " "); !strings.Contains(a, "-n a-new") || !strings.Contains(a, `"autoMemoryEnabled":false`) ||
+		!strings.Contains(a, "--permission-mode dontAsk") || !strings.HasSuffix(a, "待機") {
+		t.Fatalf("新しく起こす引数が違う: %s", a)
+	}
+	if a := got["a-copy"]; a.Verb != "写して起こす" || !strings.HasSuffix(strings.Join(a.Args, " "), "--resume s-hand") {
+		t.Fatalf("写しの引数が違う: %+v", a)
+	}
+	if a := got["a-gone"]; a.Verb != "止める" || strings.Join(a.Args, " ") != "stop g" {
+		t.Fatalf("要らなくなったものは止めるはず: %+v", a)
+	}
+	if _, ok := got["hand"]; ok {
+		t.Fatal("手で開いたものに触った")
+	}
+}
