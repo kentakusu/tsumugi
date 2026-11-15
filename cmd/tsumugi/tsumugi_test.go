@@ -212,3 +212,20 @@ func TestResolveName(t *testing.T) {
 		t.Fatal("無い番号を通した")
 	}
 }
+
+func TestMachine(t *testing.T) {
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{
+		{Name: "here", Prompt: "p"},
+		{Name: "there", Machine: "other-pc", Prompt: "p"},
+	}}}
+	st := map[string]affState{"x": {Sessions: map[string]sessionState{"there": {"s1"}}}}
+	acts := planOn("my-pc", affs, st, nil)
+	if len(acts) != 1 || acts[0].Name != "here" {
+		t.Fatalf("よそのマシンのものは起こさず止めないはず: %+v", acts)
+	}
+	var buf bytes.Buffer
+	printListOn(&buf, "my-pc", affs, nil)
+	if out := buf.String(); !strings.Contains(out, "my-pc") || !strings.Contains(out, "（よそのマシン）") || !strings.Contains(out, "other-pc") {
+		t.Fatalf("list にマシンが出ていない:\n%s", out)
+	}
+}

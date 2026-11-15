@@ -14,19 +14,25 @@ import (
 
 // 紡が見ているセッションを短く並べる。
 func printList(w io.Writer, affs []affiliation, all []agent) {
+	printListOn(w, thisMachine(), affs, all)
+}
+
+func printListOn(w io.Writer, machine string, affs []affiliation, all []agent) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "番号\t名前\t所属\t実際\tID\t作業フォルダ")
+	fmt.Fprintln(tw, "番号\t名前\t所属\t実際\tID\tマシン\t作業フォルダ")
 	n := 0
 	for _, af := range affs {
 		for _, s := range af.Sessions {
 			n++
-			state, id := "止まっている", "-"
-			if a, ok := newestRunning(all, s.Name); ok {
+			state, id, m := "止まっている", "-", machine
+			if !s.here(machine) {
+				state, m = "（よそのマシン）", s.Machine
+			} else if a, ok := newestRunning(all, s.Name); ok {
 				state, id = a.Status, a.ID
 			} else if a, ok := newest(all, s.Name); ok {
 				id = a.ID
 			}
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", n, s.Name, af.ID, state, id, s.Dir)
+			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", n, s.Name, af.ID, state, id, m, s.Dir)
 		}
 	}
 	tw.Flush()

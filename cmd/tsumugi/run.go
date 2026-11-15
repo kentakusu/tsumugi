@@ -26,6 +26,10 @@ type action struct {
 
 // 突き合わせて、やることを決める（claude は呼ばない）。
 func plan(affs []affiliation, states map[string]affState, all []agent) []action {
+	return planOn(thisMachine(), affs, states, all)
+}
+
+func planOn(machine string, affs []affiliation, states map[string]affState, all []agent) []action {
 	running := map[string]agent{}
 	for _, a := range all {
 		if a.Pid > 0 {
@@ -37,7 +41,10 @@ func plan(affs []affiliation, states map[string]affState, all []agent) []action 
 		st := states[af.ID]
 		want := map[string]bool{}
 		for _, s := range af.Sessions {
-			want[s.Name] = true
+			want[s.Name] = true // よそのマシンのものも「要る」なので止めない
+			if !s.here(machine) {
+				continue
+			}
 			if _, ok := running[s.Name]; ok {
 				continue
 			}

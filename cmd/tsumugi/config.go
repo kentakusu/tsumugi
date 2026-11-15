@@ -29,6 +29,22 @@ type sessionSpec struct {
 	// 既存の会話（セッション ID）を写して始める。ほかの場所で始めた会話を
 	// 紡に移すときに使う。紡が一度起こしたあとは見ない（状態.json が優先）。
 	From string `json:"引き継ぐ会話,omitempty"`
+	// 動かすマシン（ホスト名）。空ならどのマシンでも。合わないマシンの紡は起こさず・止めない。
+	Machine string `json:"マシン,omitempty"`
+}
+
+// このマシンの名前。WSL ではディストロ名も添える（同じ Windows に複数のディストロが在るため）。
+func thisMachine() string {
+	h, _ := os.Hostname()
+	if d := os.Getenv("WSL_DISTRO_NAME"); d != "" && !strings.EqualFold(d, h) {
+		return h + "/" + d
+	}
+	return h
+}
+
+// このマシンで動かすものか。
+func (s sessionSpec) here(machine string) bool {
+	return s.Machine == "" || strings.EqualFold(s.Machine, machine)
 }
 
 // 所属.json の中身。
