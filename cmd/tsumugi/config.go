@@ -33,10 +33,13 @@ type sessionSpec struct {
 	Machine string `json:"マシン,omitempty"`
 }
 
-// このマシンの名前。WSL ではディストロ名も添える（同じ Windows に複数のディストロが在るため）。
+// このマシンの名前。WSL では必ず「ホスト名/ディストロ名」にする。
+// 同じ Windows の上に複数のディストロが在り、ホスト名だけでは見分けられないことがあるため
+// （ホスト名を設定していないディストロは Windows と同じ名前になる）。
+// ★結の帰属（名乗り）にも入るので、形を変えると別の書き手になる。変えない。
 func thisMachine() string {
 	h, _ := os.Hostname()
-	if d := os.Getenv("WSL_DISTRO_NAME"); d != "" && !strings.EqualFold(d, h) {
+	if d := os.Getenv("WSL_DISTRO_NAME"); d != "" {
 		return h + "/" + d
 	}
 	return h
