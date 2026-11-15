@@ -116,7 +116,10 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	acts := plan(affs, states, all)
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
-		return nil
+		if dry {
+			return nil
+		}
+		return record(affs, states, all) // 前回 控え損ねたものを拾う
 	}
 	var firstErr error
 	for _, act := range acts {
@@ -147,6 +150,14 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	if err != nil {
 		return err
 	}
+	if err := record(affs, states, all); err != nil {
+		return err
+	}
+	return firstErr
+}
+
+// 動いているものの会話 ID を控える。
+func record(affs []affiliation, states map[string]affState, all []agent) error {
 	for _, af := range affs {
 		st := states[af.ID]
 		for _, s := range af.Sessions {
@@ -158,5 +169,5 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			return err
 		}
 	}
-	return firstErr
+	return nil
 }
