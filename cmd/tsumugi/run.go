@@ -55,6 +55,9 @@ func plan(affs []affiliation, states map[string]affState, all []agent) []action 
 		}
 		var gone []string
 		for name := range st.Sessions {
+			if af.only {
+				break
+			}
 			if !want[name] {
 				gone = append(gone, name)
 			}

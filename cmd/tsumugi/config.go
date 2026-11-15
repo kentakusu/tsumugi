@@ -34,6 +34,7 @@ type sessionSpec struct {
 type affiliation struct {
 	ID       string        `json:"-"` // フォルダ名
 	Path     string        `json:"-"` // 所属.json の場所
+	only     bool          // 一部のセッションだけを扱う（止める・控えを書き戻す対象を絞る）
 	Label    string        `json:"表示名"`
 	Sessions []sessionSpec `json:"セッション"`
 }

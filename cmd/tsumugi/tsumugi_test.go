@@ -157,3 +157,42 @@ func TestPlan(t *testing.T) {
 		t.Fatal("手で開いたものに触った")
 	}
 }
+
+func TestInstallFiles(t *testing.T) {
+	e := installEnv{Exe: "/opt/my tools/tsumugi", Path: "/a:/b", LogFile: "/h/.tsumugi/run.log"}
+	fs := systemdFiles("/u", e)
+	if len(fs) != 2 || !strings.Contains(fs[0].Body, `ExecStart="/opt/my tools/tsumugi" run`) ||
+		!strings.Contains(fs[0].Body, "KillMode=process") || !strings.Contains(fs[0].Body, "Environment=PATH=/a:/b") {
+		t.Fatalf("service が違う:\n%s", fs[0].Body)
+	}
+	if !strings.Contains(fs[1].Body, "OnUnitInactiveSec=5min") {
+		t.Fatalf("timer が違う:\n%s", fs[1].Body)
+	}
+	e.Exe = "/x/<t>&"
+	if f := launchdFile("/L", e); !strings.Contains(f.Body, "<string>/x/&lt;t&gt;&amp;</string>") || !strings.HasSuffix(f.Path, ".plist") {
+		t.Fatalf("plist のエスケープが違う:\n%s", f.Body)
+	}
+	if a := strings.Join(schtasksArgs(installEnv{Exe: `C:\t\tsumugi.exe`}), " "); !strings.Contains(a, `/TR "C:\t\tsumugi.exe" run`) {
+		t.Fatalf("schtasks の引数が違う: %s", a)
+	}
+}
+
+func TestListAndOnly(t *testing.T) {
+	all := []agent{
+		{Name: "a", ID: "old", StartedAt: 1},
+		{Name: "a", ID: "new", StartedAt: 2, Pid: 9, Status: "idle"},
+		{Name: "b", ID: "b1", StartedAt: 1},
+	}
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "a"}, {Name: "b"}}}}
+	var buf bytes.Buffer
+	printList(&buf, affs, all)
+	if out := buf.String(); !strings.Contains(out, "new") || !strings.Contains(out, "止まっている") {
+		t.Fatalf("list が違う:\n%s", out)
+	}
+	// 1 本だけ起こすときは、ほかのセッションを止めない
+	st := map[string]affState{"x": {Sessions: map[string]sessionState{"b": {"b1"}, "c": {"c1"}}}}
+	acts := plan([]affiliation{onlySession(affs[0], affs[0].Sessions[1])}, st, all)
+	if len(acts) != 1 || acts[0].Name != "b" || acts[0].Verb != "起こし直す" {
+		t.Fatalf("絞ったときのやることが違う: %+v", acts)
+	}
+}
