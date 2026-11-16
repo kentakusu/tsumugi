@@ -20,6 +20,8 @@ type sessionState struct {
 	SessionID string `json:"会話"`
 	// 定時ごとに、最後に届けた（または諦めた）発火時刻。
 	Delivered map[string]string `json:"定時,omitempty"`
+	// 見張り: いまの様子と、いつから続いているか。
+	Watch *watchState `json:"見張り,omitempty"`
 }
 
 type affState struct {

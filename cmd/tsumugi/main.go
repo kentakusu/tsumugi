@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 )
 
 const usage = `使い方: tsumugi <コマンド>
@@ -13,6 +14,8 @@ const usage = `使い方: tsumugi <コマンド>
   list, l             紡のセッションを番号・名前で並べる
   attach, a <名前|番号|ID>
                       開く（止まっていれば同じ会話のまま起こしてから）
+  届ける, send <名前> [指示…]
+                      セッションへ指示を渡す（無ければ標準入力を 1 件として。すぐ渡せなければ run が渡す）
   yui <問い合わせ>…    結のデーモンに名乗って問い合わせる（無ければ標準入力を 1 件として）
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
@@ -45,6 +48,8 @@ func main() {
 	case "run":
 		dry := len(os.Args) > 2 && os.Args[2] == "--dry"
 		err = cmdRun(dry)
+	case "届ける", "send":
+		err = cmdDeliver(os.Args[2:], os.Stdin)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return
@@ -86,6 +91,13 @@ func cmdRun(dry bool) error {
 	affs, err := loadAffiliations(root)
 	if err != nil {
 		return err
+	}
+	if !dry {
+		unlock, err := lockHome(root, 2*time.Minute)
+		if err != nil {
+			return err
+		}
+		defer unlock()
 	}
 	return reconcile(os.Stdout, affs, dry)
 }

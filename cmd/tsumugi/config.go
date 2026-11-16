@@ -90,6 +90,7 @@ type affiliation struct {
 	only     bool          // 一部のセッションだけを扱う（止める・控えを書き戻す対象を絞る）
 	Label    string        `json:"表示名"`
 	Sessions []sessionSpec `json:"セッション"`
+	Watch    watchSpec     `json:"見張り,omitempty"`
 }
 
 const configFile = "所属.json"

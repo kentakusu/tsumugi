@@ -137,7 +137,16 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	if err != nil {
 		return err
 	}
-	// 定時を先に届ける（止まっているものは、指示を付けて起こすので、下の「起こし直す」と重ならない）。
+	// 届け待ちと定時を先に渡す（止まっているものは、指示を付けて起こすので、下の「起こし直す」と重ならない）。
+	queuedDone, err := deliverQueue(w, affs, states, all, time.Now(), dry)
+	if err != nil {
+		return err
+	}
+	if queuedDone {
+		if all, err = listAllAgents(); err != nil {
+			return err
+		}
+	}
 	if delivered, err := deliverSchedules(w, affs, states, all, time.Now(), dry); err != nil {
 		return err
 	} else if delivered && !dry {
@@ -153,6 +162,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	acts := plan(affs, states, all)
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
+		watch(w, affs, states, all, time.Now(), dry)
 		if dry {
 			return nil
 		}
@@ -190,6 +200,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	if err != nil {
 		return err
 	}
+	watch(w, affs, states, all, time.Now(), dry)
 	if err := record(affs, states, all); err != nil {
 		return err
 	}
@@ -268,29 +279,17 @@ func deliverSchedules(w io.Writer, affs []affiliation, states map[string]affStat
 	any := false
 	for _, d := range ds {
 		fmt.Fprintf(w, "%s/%s: 定時を届ける", d.Affiliation, d.Name)
-		if d.Running != nil && d.Running.Status != "idle" {
-			fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
-			continue
-		}
 		if dry {
-			fmt.Fprintf(w, "（しない）%q\n", d.Prompt)
+			if d.Running != nil && d.Running.Status != "idle" {
+				fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
+			} else {
+				fmt.Fprintf(w, "（しない）%q\n", d.Prompt)
+			}
 			continue
 		}
-		if d.Running != nil {
-			if _, err := runClaude("stop", d.Running.ID); err != nil {
-				fmt.Fprintln(w, " … 止められず失敗")
-				continue
-			}
-			if !waitStopped(d.Name, 20*time.Second) {
-				fmt.Fprintln(w, " … 止まりきらず失敗")
-				continue
-			}
-		}
-		if _, err := runClaudeIn(d.Dir, "--bg", "--resume", d.SessionID, d.Prompt); err != nil {
-			fmt.Fprintln(w, " … 失敗:", err)
+		if !deliverPrompt(w, d) {
 			continue
 		}
-		fmt.Fprintln(w, " … した")
 		st := states[d.Affiliation]
 		ss := st.Sessions[d.Name]
 		if ss.Delivered == nil {

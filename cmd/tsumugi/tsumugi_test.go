@@ -340,3 +340,107 @@ func TestThisMachineOrder(t *testing.T) {
 		t.Fatalf("環境変数が先: %q", got)
 	}
 }
+
+func TestWatch(t *testing.T) {
+	t.Setenv("TSUMUGI_MACHINE", "m")
+	af := affiliation{ID: "a", Sessions: []sessionSpec{{Name: "s"}}, Watch: watchSpec{Blocked: "10m"}}
+	states := map[string]affState{"a": {Sessions: map[string]sessionState{"s": {SessionID: "X"}}}}
+	all := []agent{{Name: "s", SessionID: "X", Pid: 1, StartedAt: 1, State: "blocked"}}
+	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.Local)
+	var out bytes.Buffer
+	watch(&out, []affiliation{af}, states, all, t0, false)
+	if w := states["a"].Sessions["s"].Watch; w == nil || w.State != "blocked" {
+		t.Fatalf("様子を控えていない: %+v", w)
+	}
+	watch(&out, []affiliation{af}, states, all, t0.Add(5*time.Minute), false)
+	if out.Len() != 0 {
+		t.Fatalf("早すぎる知らせ: %s", out.String())
+	}
+	watch(&out, []affiliation{af}, states, all, t0.Add(11*time.Minute), false)
+	if !strings.Contains(out.String(), "blocked のまま") || !states["a"].Sessions["s"].Watch.Notified {
+		t.Fatalf("知らせていない: %q", out.String())
+	}
+	out.Reset()
+	watch(&out, []affiliation{af}, states, all, t0.Add(20*time.Minute), false)
+	if out.Len() != 0 {
+		t.Fatalf("同じ続きで 2 度知らせた: %s", out.String())
+	}
+	all[0].State = "idle"
+	watch(&out, []affiliation{af}, states, all, t0.Add(21*time.Minute), false)
+	if w := states["a"].Sessions["s"].Watch; w.State != "idle" || w.Notified {
+		t.Fatalf("様子が変わったのに数え直していない: %+v", w)
+	}
+}
+
+func TestDeliverQueue(t *testing.T) {
+	t.Setenv("TSUMUGI_MACHINE", "m")
+	dir := t.TempDir()
+	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "s", Dir: dir}}}
+	now := time.Now()
+	if _, err := enqueue(af, "s", "一つ目", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := enqueue(af, "s", "二つ目", now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	old := runClaudeIn
+	defer func() { runClaudeIn = old }()
+	runClaudeIn = func(d string, args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		if len(args) > 0 && args[0] == "agents" {
+			return []byte("[]"), nil
+		}
+		return nil, nil
+	}
+	states := map[string]affState{"a": {Sessions: map[string]sessionState{"s": {SessionID: "X"}}}}
+	// 作業中なら渡さない
+	busy := []agent{{Name: "s", SessionID: "X", Pid: 1, StartedAt: 1, Status: "busy"}}
+	var out bytes.Buffer
+	if ok, err := deliverQueue(&out, []affiliation{af}, states, busy, now, false); err != nil || ok {
+		t.Fatalf("作業中に渡した: %v %v", ok, err)
+	}
+	if qs, _ := loadQueue(af); len(qs) != 2 {
+		t.Fatalf("届け待ちが減った: %d", len(qs))
+	}
+	// 止まっていれば、まとめて 1 回で渡し、届け待ちを消す
+	ok, err := deliverQueue(&out, []affiliation{af}, states, nil, now, false)
+	if err != nil || !ok {
+		t.Fatalf("渡していない: %v %v %s", ok, err, out.String())
+	}
+	last := calls[len(calls)-1]
+	if last[0] != "--bg" || last[2] != "X" || !strings.Contains(last[3], "一つ目") || !strings.Contains(last[3], "二つ目") {
+		t.Fatalf("渡し方が違う: %q", last)
+	}
+	if qs, _ := loadQueue(af); len(qs) != 0 {
+		t.Fatalf("届け待ちが残った: %d", len(qs))
+	}
+	// 古すぎるものは諦める
+	if _, err := enqueue(af, "s", "古い", now.Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if _, err := deliverQueue(&out, []affiliation{af}, states, nil, now, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "諦めました") {
+		t.Fatalf("諦めていない: %s", out.String())
+	}
+}
+
+func TestLockHome(t *testing.T) {
+	dir := t.TempDir()
+	unlock, err := lockHome(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockHome(dir, 0); err == nil {
+		t.Fatal("2 つ目も錠が取れた")
+	}
+	unlock()
+	if u, err := lockHome(dir, 0); err != nil {
+		t.Fatal("外したあとに取れない:", err)
+	} else {
+		u()
+	}
+}
