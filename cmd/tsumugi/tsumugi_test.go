@@ -374,8 +374,8 @@ func TestWatch(t *testing.T) {
 
 func TestDeliverQueue(t *testing.T) {
 	t.Setenv("TSUMUGI_MACHINE", "m")
-	resumeWait = 0
-	defer func() { resumeWait = 15 * time.Second }()
+	resumeWait, stopSettle = 0, 0
+	defer func() { resumeWait, stopSettle = 15*time.Second, 3*time.Second }()
 	dir := t.TempDir()
 	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "s", Dir: dir}}}
 	now := time.Now()
@@ -498,4 +498,35 @@ func TestParseTag(t *testing.T) {
 	if _, _, ok := parseTag("v1.0.0"); ok {
 		t.Fatal("別の形のタグを読んだ")
 	}
+}
+
+func TestTrackByID(t *testing.T) {
+	states := map[string]affState{"a": {Sessions: map[string]sessionState{"s": {SessionID: "NEW"}}}}
+	learnIDs(states)
+	defer func() { knownIDs = map[string]string{} }()
+	all := []agent{{Name: "中身から付いた名前", SessionID: "NEW", Pid: 9, StartedAt: 5}}
+	if a, ok := newestRunning(all, "s"); !ok || a.SessionID != "NEW" {
+		t.Fatalf("名前が変わった写しを、控えた ID で見つけられない: %+v", a)
+	}
+	af := affiliation{ID: "a", Sessions: []sessionSpec{{Name: "s"}}}
+	if acts := planOn("", []affiliation{af}, states, all); len(acts) != 0 {
+		t.Fatalf("名前が変わっただけのものを起こし直そうとした: %+v", acts)
+	}
+}
+
+func TestAdoptCopy(t *testing.T) {
+	old := runClaudeIn
+	defer func() { runClaudeIn = old; resumeWait = 15 * time.Second }()
+	resumeWait = 0
+	t0 := time.Now()
+	runClaudeIn = func(d string, args ...string) ([]byte, error) {
+		return []byte(fmt.Sprintf(`[{"name":"ai-title","sessionId":"COPY","pid":7,"cwd":"/w","startedAt":%d}]`, t0.Add(time.Second).UnixMilli())), nil
+	}
+	if id := adoptCopy(delivery{Name: "s", Dir: "/w", SessionID: "OLD"}, t0); id != "COPY" {
+		t.Fatalf("写しを引き取れない: %q", id)
+	}
+	if knownIDs["s"] != "COPY" {
+		t.Fatal("引き取った ID を覚えていない")
+	}
+	knownIDs = map[string]string{}
 }

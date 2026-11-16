@@ -99,29 +99,76 @@ func loadQueue(af affiliation) ([]queued, error) {
 }
 
 // 指示を 1 つのセッションへ渡す（定時と届けで共通）。渡せたら true。
+// Claude Code が写し（新しい会話 ID）を作ったときは、その ID を返す（呼ぶ側が控えを書き換える）。
 // 渡せなかった理由は w に書く。
-func deliverPrompt(w io.Writer, d delivery) bool {
+func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 	if d.Running != nil && d.Running.Status != "idle" {
 		fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
-		return false
+		return false, ""
 	}
 	if d.Running != nil {
 		if _, err := runClaude("stop", d.Running.ID); err != nil {
 			fmt.Fprintln(w, " … 止められず失敗")
-			return false
+			return false, ""
 		}
 		if !waitStopped(d.Name, 20*time.Second) {
 			fmt.Fprintln(w, " … 止まりきらず失敗")
-			return false
+			return false, ""
 		}
+		time.Sleep(stopSettle) // 止まった直後に --resume すると写しになることがある
 	}
+	t0 := time.Now()
 	if _, err := runClaudeIn(d.Dir, "--bg", "--resume", d.SessionID, d.Prompt); err != nil {
 		fmt.Fprintln(w, " … 失敗:", err)
-		return false
+		return false, ""
 	}
-	justResumed(d.Name)
+	resumed[d.Name] = true
+	newID := adoptCopy(d, t0)
+	if newID != "" {
+		fmt.Fprintf(w, " … した（★写しになった: %s → %s。紡はこちらを追う）\n", short(d.SessionID), short(newID))
+		return true, newID
+	}
 	fmt.Fprintln(w, " … した")
-	return true
+	return true, ""
+}
+
+var stopSettle = 3 * time.Second // テストで縮める
+
+func short(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// 起こした会話が出るのを待つ。同じ ID で出れば ""。出ずに、同じ作業フォルダで t0 以降に起きた
+// 別の会話があれば、それを写しとして引き取る（ID を返す）。
+func adoptCopy(d delivery, t0 time.Time) string {
+	dir := expandHome(d.Dir)
+	for end := time.Now().Add(resumeWait); ; time.Sleep(time.Second) {
+		all, err := listAllAgents()
+		if err == nil {
+			var cand agent
+			for _, a := range all {
+				if a.Pid == 0 {
+					continue
+				}
+				if a.SessionID == d.SessionID {
+					return ""
+				}
+				if a.Cwd == dir && time.UnixMilli(a.StartedAt).After(t0.Add(-2*time.Second)) && a.StartedAt > cand.StartedAt {
+					cand = a
+				}
+			}
+			if cand.SessionID != "" {
+				knownIDs[d.Name] = cand.SessionID
+				return cand.SessionID
+			}
+		}
+		if !time.Now().Before(end) {
+			return ""
+		}
+	}
 }
 
 // 届け待ちを渡す。セッションごとにまとめて 1 回で渡す。
@@ -189,8 +236,18 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 				fmt.Fprintf(w, "（しない）%q\n", d.Prompt)
 				continue
 			}
-			if !deliverPrompt(w, d) {
+			ok, newID := deliverPrompt(w, d)
+			if !ok {
 				continue
+			}
+			if newID != "" {
+				st := states[af.ID]
+				ss := st.Sessions[name]
+				ss.SessionID = newID
+				st.Sessions[name] = ss
+				if err := saveState(af, st); err != nil {
+					return true, err
+				}
 			}
 			for _, q := range keep {
 				if err := os.Remove(q.file); err != nil {
@@ -272,6 +329,7 @@ func cmdDeliver(args []string, stdin io.Reader) error {
 		return err
 	}
 	states[af.ID] = st
+	learnIDs(states)
 	all, err := listAllAgents()
 	if err != nil {
 		return err

@@ -148,6 +148,7 @@ func cmdList() error {
 	if err != nil {
 		return err
 	}
+	learnAll(affs)
 	all, err := listAllAgents()
 	if err != nil {
 		return err

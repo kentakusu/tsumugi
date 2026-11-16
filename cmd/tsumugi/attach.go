@@ -88,6 +88,7 @@ func cmdAttach(arg string) error {
 	if err != nil {
 		return err
 	}
+	learnAll(affs)
 	name, err := resolveName(affs, arg)
 	if err != nil {
 		return err

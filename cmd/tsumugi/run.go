@@ -38,6 +38,16 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 			running[a.Name] = a
 		}
 	}
+	// 名前が変わった写しでも、控えた会話 ID で動いていれば「動いている」
+	for _, st := range states {
+		for name, ss := range st.Sessions {
+			for _, a := range all {
+				if a.Pid > 0 && ss.SessionID != "" && a.SessionID == ss.SessionID {
+					running[name] = a
+				}
+			}
+		}
+	}
 	var acts []action
 	for _, af := range affs {
 		st := states[af.ID]
@@ -110,8 +120,32 @@ func startArgs(aff string, s sessionSpec) []string {
 	return args
 }
 
-// 動いている同名のうち、いちばん新しいもの。
+// 名前 → 紡が控えた会話 ID（状態.json から）。
+// ★指示を付けて起こすと、Claude Code が写し（新しい会話 ID）を作り、名前も中身から付け直すことがある
+// （2026-11-17 Reatex で実測・2.1.325 で起こし 2.1.326 で渡したとき）。名前だけで追うと見失うので、
+// 控えた会話 ID で見つかればそれを先に使う。
+var knownIDs = map[string]string{}
+
+func learnIDs(states map[string]affState) {
+	knownIDs = map[string]string{}
+	for _, st := range states {
+		for name, ss := range st.Sessions {
+			if ss.SessionID != "" {
+				knownIDs[name] = ss.SessionID
+			}
+		}
+	}
+}
+
+// 動いているもの: 控えた会話 ID のものがあればそれ、無ければ同名のうちいちばん新しいもの。
 func newestRunning(all []agent, name string) (agent, bool) {
+	if id := knownIDs[name]; id != "" {
+		for _, a := range all {
+			if a.SessionID == id && a.Pid > 0 {
+				return a, true
+			}
+		}
+	}
 	var best agent
 	for _, a := range all {
 		if a.Name == name && a.Pid > 0 && a.StartedAt > best.StartedAt {
@@ -134,6 +168,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		}
 		states[af.ID] = st
 	}
+	learnIDs(states)
 	// 更新（時刻が来ていれば）。claude が新しくなっても、動いているセッションは下で入れ直す。
 	if root, err := homeDir(); err == nil {
 		if g, err := loadGlobal(root); err == nil {
@@ -316,11 +351,15 @@ func deliverSchedules(w io.Writer, affs []affiliation, states map[string]affStat
 			}
 			continue
 		}
-		if !deliverPrompt(w, d) {
+		ok, newID := deliverPrompt(w, d)
+		if !ok {
 			continue
 		}
 		st := states[d.Affiliation]
 		ss := st.Sessions[d.Name]
+		if newID != "" {
+			ss.SessionID = newID
+		}
 		if ss.Delivered == nil {
 			ss.Delivered = map[string]string{}
 		}

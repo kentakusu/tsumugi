@@ -61,3 +61,14 @@ func saveState(a affiliation, st affState) error {
 	}
 	return os.Rename(tmp, p)
 }
+
+// 控えた会話 ID を覚える（読めないものは飛ばす）。
+func learnAll(affs []affiliation) {
+	states := map[string]affState{}
+	for _, af := range affs {
+		if st, err := loadState(af); err == nil {
+			states[af.ID] = st
+		}
+	}
+	learnIDs(states)
+}
