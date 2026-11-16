@@ -444,3 +444,32 @@ func TestLockHome(t *testing.T) {
 		u()
 	}
 }
+
+func TestStaleSessions(t *testing.T) {
+	inst := time.Date(2026, 11, 17, 7, 16, 0, 0, time.Local)
+	af := affiliation{ID: "a", Sessions: []sessionSpec{{Name: "old"}, {Name: "new"}, {Name: "busy"}, {Name: "hand"}}}
+	states := map[string]affState{"a": {Sessions: map[string]sessionState{"old": {SessionID: "O"}, "new": {SessionID: "N"}, "busy": {SessionID: "B"}}}}
+	before, after := inst.Add(-time.Hour).UnixMilli(), inst.Add(time.Minute).UnixMilli()
+	all := []agent{
+		{Name: "old", SessionID: "O", Pid: 1, StartedAt: before, Status: "idle"},
+		{Name: "new", SessionID: "N", Pid: 2, StartedAt: after, Status: "idle"},
+		{Name: "busy", SessionID: "B", Pid: 3, StartedAt: before, Status: "busy"},
+		{Name: "hand", SessionID: "H", Pid: 4, StartedAt: before, Status: "idle"}, // 紡が起こしていない
+	}
+	got := staleSessions("", []affiliation{af}, states, all, inst)
+	if len(got) != 1 || got[0].Name != "old" {
+		t.Fatalf("入れ直すのは old だけのはず: %+v", got)
+	}
+}
+
+func TestDiffSnap(t *testing.T) {
+	prev := schemaSnap{Keys: map[string]string{"a": "", "b": ""}}
+	cur := schemaSnap{Keys: map[string]string{"a": "", "c": "新しい"}}
+	d := diffSnap(prev, cur)
+	if !strings.Contains(d, "+ c  新しい") || !strings.Contains(d, "- b") {
+		t.Fatalf("増減が出ない: %q", d)
+	}
+	if diffSnap(schemaSnap{}, cur) != "" {
+		t.Fatal("初回（前が空）に全部を「増えた」と言った")
+	}
+}

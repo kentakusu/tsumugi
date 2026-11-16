@@ -42,6 +42,8 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi list`（`l`） | 在る。紡のセッションを番号・名前で並べる |
 | `tsumugi attach`（`a`）`<名前\|番号\|ID>` | 在る。開く。番号は `list` の左端。止まっていれば同じ会話のまま起こしてから開く |
 | `tsumugi 届ける`（`send`）`<名前> [指示…]` | 在る。外（受け口・人・道具）からセッションへ指示を渡す。すぐ渡せなければ `<所属>/届け待ち/` に置き、run が渡す（24 時間で諦めて知らせる） |
+| `tsumugi 更新`（`update`）`[--dry]` | 在る。Claude Code（`claude update`）と OS のパッケージ（Ubuntu: apt / macOS: brew / Windows: winget）を新しくする。`紡.json` の「更新」に時刻を書けば run が毎日やる。古い版で動いている空きセッションを、同じ会話のまま入れ直す |
+| `tsumugi 設定項目`（`settings`）`[--dry]` | 在る。Claude Code の設定項目の一覧を取り、前回からの増減と、手元の設定にある「一覧に無い鍵」を出す |
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
 | `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）で確かめた。macOS（launchd）・Windows（タスク スケジューラ）は書いただけ |
 
@@ -96,6 +98,25 @@ run のたびに、紡のセッションの様子（`claude agents --json` の s
 ```json
 { "マシン": "myhost/Ubuntu", "結": { "アドレス": "127.0.0.1:7952" } }
 ```
+
+更新（セキュリティのため、いつも最新を使う）:
+
+```json
+"更新": { "いつ": "30 4 * * *", "claude": true, "OS": true, "入れ直し": true, "設定項目": true,
+          "ほか": [["mise", "upgrade"]], "知らせる": ["~/bin/notify.sh"] }
+```
+
+| キー | 意味 |
+|---|---|
+| `いつ` | cron 5 項目。来たら run が 1 回 更新する（書かなければ `tsumugi 更新` を手で） |
+| `claude` | `claude update`（純正の更新を呼ぶだけ） |
+| `OS` | Ubuntu/Debian: `sudo -n apt-get update` と `upgrade`（パスワードを聞かれる環境では止まらず失敗として知らせる）／macOS: `brew update`・`brew upgrade`／Windows: `winget upgrade --all --silent`。**再起動はしない**（要るときは知らせる） |
+| `ほか` | ほかに流すコマンドの並び |
+| `入れ直し` | run のたびに、claude の実行ファイルより前に起きた・空いている紡のセッションを、同じ会話のまま起こし直す（作業中・入力待ちには触らない） |
+| `設定項目` | 設定項目の一覧（SchemaStore の JSON Schema）を取り、増減と「一覧に無い鍵」を出す |
+| `知らせる` | 版が上がった・失敗した・再起動が要る・設定項目が増減した、を知らせるコマンド |
+
+結果は `<手元>/更新の記録.log` に残ります。
 
 `マシン` は書かなければホスト名から作ります（WSL では `ホスト名/ディストロ名`）。
 ★**WSL では必ず書いてください。** ディストロ名を教える `WSL_DISTRO_NAME` は、systemd の timer や

@@ -133,6 +133,12 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		}
 		states[af.ID] = st
 	}
+	// 更新（時刻が来ていれば）。claude が新しくなっても、動いているセッションは下で入れ直す。
+	if root, err := homeDir(); err == nil {
+		if g, err := loadGlobal(root); err == nil {
+			maybeUpdate(w, root, g, time.Now(), dry)
+		}
+	}
 	all, err := listAllAgents()
 	if err != nil {
 		return err
@@ -157,6 +163,16 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		}
 		if all, err = listAllAgents(); err != nil {
 			return err
+		}
+	}
+	// 古い版で動いている空きセッションを入れ直す（紡.json の「更新」「入れ直し」）。
+	if root, err := homeDir(); err == nil {
+		if g, err := loadGlobal(root); err == nil && g.Update != nil && g.Update.Restart {
+			if restartStale(w, affs, states, all, dry) && !dry {
+				if all, err = listAllAgents(); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	acts := plan(affs, states, all)

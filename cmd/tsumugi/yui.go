@@ -26,7 +26,9 @@ import (
 type globalConfig struct {
 	// このマシンの名前（無ければホスト名から作る。thisMachine を見る）
 	Machine string `json:"マシン,omitempty"`
-	Yui     struct {
+	// 更新（Claude Code と環境を新しくする）。update.go
+	Update *updateSpec `json:"更新,omitempty"`
+	Yui    struct {
 		Addr string `json:"アドレス"` // 例 127.0.0.1:7952
 	} `json:"結"`
 }

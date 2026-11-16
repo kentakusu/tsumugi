@@ -16,6 +16,9 @@ const usage = `使い方: tsumugi <コマンド>
                       開く（止まっていれば同じ会話のまま起こしてから）
   届ける, send <名前> [指示…]
                       セッションへ指示を渡す（無ければ標準入力を 1 件として。すぐ渡せなければ run が渡す）
+  更新, update [--dry] Claude Code と OS などを新しくする（紡.json の「更新」のとおり。無ければ claude・OS・設定項目）
+  設定項目, settings [--dry]
+                      Claude Code の設定項目の一覧を取り、前回からの増減と、手元の設定の「一覧に無い鍵」を出す
   yui <問い合わせ>…    結のデーモンに名乗って問い合わせる（無ければ標準入力を 1 件として）
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
@@ -48,6 +51,10 @@ func main() {
 	case "run":
 		dry := len(os.Args) > 2 && os.Args[2] == "--dry"
 		err = cmdRun(dry)
+	case "更新", "update":
+		err = cmdUpdate(len(os.Args) > 2 && os.Args[2] == "--dry")
+	case "設定項目", "settings":
+		err = cmdSettings(len(os.Args) > 2 && os.Args[2] == "--dry")
 	case "届ける", "send":
 		err = cmdDeliver(os.Args[2:], os.Stdin)
 	case "help", "-h", "--help":
