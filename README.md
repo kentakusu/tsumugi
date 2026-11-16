@@ -102,13 +102,14 @@ run のたびに、紡のセッションの様子（`claude agents --json` の s
 更新（セキュリティのため、いつも最新を使う）:
 
 ```json
-"更新": { "いつ": "30 4 * * *", "claude": true, "OS": true, "入れ直し": true, "設定項目": true,
+"更新": { "いつ": "30 4 * * *", "紡": true, "claude": true, "OS": true, "入れ直し": true, "設定項目": true,
           "ほか": [["mise", "upgrade"]], "知らせる": ["~/bin/notify.sh"] }
 ```
 
 | キー | 意味 |
 |---|---|
 | `いつ` | cron 5 項目。来たら run が 1 回 更新する（書かなければ `tsumugi 更新` を手で） |
+| `紡` | 紡そのものを新しくする。main に push するたびに Actions が各 OS 向けの実行ファイルを [Release](https://github.com/kentakusu/tsumugi/releases) に置くので、それを取り、`SHA256SUMS` で確かめてから置き換える。Release のほうが新しいときだけ（手元の変更が入ったビルドは置き換えない）。Windows は動いている exe を `.old` に退けてから置く |
 | `claude` | `claude update`（純正の更新を呼ぶだけ） |
 | `OS` | Ubuntu/Debian: `sudo -n apt-get update` と `upgrade`（パスワードを聞かれる環境では止まらず失敗として知らせる）／macOS: `brew update`・`brew upgrade`／Windows: `winget upgrade --all --silent`。**再起動はしない**（要るときは知らせる） |
 | `ほか` | ほかに流すコマンドの並び |

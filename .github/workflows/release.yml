@@ -1,0 +1,39 @@
+# main に push されたら、各 OS 向けの実行ファイルを作って Release に置く。
+# 紡の自己更新（tsumugi 更新 の「紡」）は、ここに置いたものを取りに来る。
+# 公開リポジトリなので Actions の費用はかからない。
+name: release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: test
+        run: go test ./...
+      - name: build
+        run: |
+          set -eu
+          mkdir dist
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${t%/*}; arch=${t#*/}; ext=""; [ "$os" = windows ] && ext=.exe
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -o dist/tsumugi_${os}_${arch}${ext} ./cmd/tsumugi
+          done
+          (cd dist && sha256sum tsumugi_* > SHA256SUMS)
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          at=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d-%H%M%S)
+          tag="r${at}-$(git rev-parse --short=7 HEAD)"
+          gh release create "$tag" dist/* --title "$tag" --notes "commit $(git rev-parse HEAD)" --latest

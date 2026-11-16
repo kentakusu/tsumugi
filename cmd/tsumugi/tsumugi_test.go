@@ -489,3 +489,13 @@ func TestSkipResumed(t *testing.T) {
 		t.Fatalf("同じ run で起こしたものを、もう一度起こそうとした: %+v", got)
 	}
 }
+
+func TestParseTag(t *testing.T) {
+	at, short, ok := parseTag("r20261117-224316-b842d0d")
+	if !ok || short != "b842d0d" || !at.Equal(time.Date(2026, 11, 17, 22, 43, 16, 0, time.UTC)) {
+		t.Fatalf("読めない: %v %q %v", at, short, ok)
+	}
+	if _, _, ok := parseTag("v1.0.0"); ok {
+		t.Fatal("別の形のタグを読んだ")
+	}
+}

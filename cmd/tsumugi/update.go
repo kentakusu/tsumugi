@@ -7,7 +7,7 @@ package main
 // Claude Code の更新は純正（claude update・native の自動更新）に任せ、紡は「呼ぶ」「入れ直す」「記録して知らせる」だけ。
 //
 // 紡.json:
-//   "更新": { "いつ": "30 4 * * *", "claude": true, "OS": true, "ほか": [["mise","upgrade"]],
+//   "更新": { "いつ": "30 4 * * *", "紡": true, "claude": true, "OS": true, "ほか": [["mise","upgrade"]],
 //            "入れ直し": true, "設定項目": true, "知らせる": ["~/bin/notify.sh"] }
 
 import (
@@ -27,6 +27,7 @@ import (
 
 type updateSpec struct {
 	Cron      string     `json:"いつ,omitempty"`     // cron 5 項目。無ければ run では更新しない（tsumugi 更新 で手で）
+	Self      bool       `json:"紡,omitempty"`      // 紡そのもの（GitHub の Release から）
 	Claude    bool       `json:"claude,omitempty"` // claude update
 	OS        bool       `json:"OS,omitempty"`     // OS のパッケージ（Linux: apt / macOS: brew / Windows: winget）
 	Others    [][]string `json:"ほか,omitempty"`     // ほかに流すコマンド
@@ -91,6 +92,14 @@ func runUpdate(w io.Writer, root string, u updateSpec, dry bool) {
 	out := io.MultiWriter(w, &log)
 	fmt.Fprintf(out, "== 更新 %s（%s）\n", time.Now().Format("2006-01-02 15:04"), thisMachine())
 	var notes []string
+	if u.Self {
+		if tag, err := selfUpdate(out, dry); err != nil {
+			notes = append(notes, "★紡の自己更新が失敗: "+err.Error())
+			fmt.Fprintln(out, "紡: 失敗:", err)
+		} else if tag != "" && !dry {
+			notes = append(notes, "紡 "+version()+" → "+tag+"（次の run から新しい版）")
+		}
+	}
 	if u.Claude {
 		before := claudeVersion()
 		if step(out, dry, "claude", "update") {
@@ -295,7 +304,7 @@ func cmdUpdate(dry bool) error {
 	if err != nil {
 		return err
 	}
-	u := updateSpec{Claude: true, OS: true, Settings: true}
+	u := updateSpec{Self: true, Claude: true, OS: true, Settings: true}
 	if g.Update != nil {
 		u = *g.Update
 	}
