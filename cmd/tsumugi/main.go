@@ -4,8 +4,33 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 )
+
+// 版: ビルドに埋め込まれた git の commit（go build がリポジトリの中で埋める）。
+func version() string {
+	rev, at, dirty := "?", "", ""
+	if bi, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range bi.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				if len(s.Value) > 7 {
+					rev = s.Value[:7]
+				} else {
+					rev = s.Value
+				}
+			case "vcs.time":
+				at = " " + s.Value
+			case "vcs.modified":
+				if s.Value == "true" {
+					dirty = "（手元の変更あり）"
+				}
+			}
+		}
+	}
+	return "tsumugi " + rev + dirty + at
+}
 
 const usage = `使い方: tsumugi <コマンド>
 
@@ -22,6 +47,8 @@ const usage = `使い方: tsumugi <コマンド>
   yui <問い合わせ>…    結のデーモンに名乗って問い合わせる（無ければ標準入力を 1 件として）
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
+
+  version, --version   版（git の commit）を出す
 
 所属の設定は $TSUMUGI_HOME/<所属>/所属.json（TSUMUGI_HOME が無ければ ~/.tsumugi）。
 `
@@ -57,6 +84,9 @@ func main() {
 		err = cmdSettings(len(os.Args) > 2 && os.Args[2] == "--dry")
 	case "届ける", "send":
 		err = cmdDeliver(os.Args[2:], os.Stdin)
+	case "version", "--version", "-v", "版":
+		fmt.Println(version())
+		return
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return
