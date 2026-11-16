@@ -365,10 +365,10 @@ func TestWatch(t *testing.T) {
 	if out.Len() != 0 {
 		t.Fatalf("同じ続きで 2 度知らせた: %s", out.String())
 	}
-	all[0].State = "idle"
+	all[0].State, all[0].Status = "working", "idle"
 	watch(&out, []affiliation{af}, states, all, t0.Add(21*time.Minute), false)
 	if w := states["a"].Sessions["s"].Watch; w.State != "idle" || w.Notified {
-		t.Fatalf("様子が変わったのに数え直していない: %+v", w)
+		t.Fatalf("様子が変わったのに数え直していない（state working・status idle は idle）: %+v", w)
 	}
 }
 

@@ -3,7 +3,7 @@ package main
 // 見張り: 紡のセッションが止まったまま（権限の確認・入力待ちなど）や、作業が長すぎるのを
 // run のたびに見て、続いていたら知らせる。
 //
-// 様子は claude agents --json の state（無ければ status）。blocked は人の手を待っている。
+// 様子は claude agents --json の state が blocked なら blocked、ほかは status（busy / idle）。blocked は人の手を待っている。
 // 1 つの「続き」につき知らせるのは 1 回。様子が変われば数え直す。
 
 import (
@@ -49,9 +49,12 @@ type watchState struct {
 	Notified bool   `json:"知らせた,omitempty"`
 }
 
+// 見張る様子。blocked は state で、作業中は status（busy）で見る。
+// ★state の working は、作業していなくても出る（2026-11-17 実測: status が idle のまま
+// state が working のセッションがある）。state だけで「長すぎ」を数えると毎回鳴る。
 func agentState(a agent) string {
-	if a.State != "" {
-		return a.State
+	if a.State == "blocked" || a.Status == "blocked" {
+		return "blocked"
 	}
 	return a.Status
 }
@@ -94,7 +97,7 @@ func watch(w io.Writer, affs []affiliation, states map[string]affState, all []ag
 			switch cur {
 			case "blocked":
 				limit = blocked
-			case "working", "busy":
+			case "busy":
 				limit = long
 			default:
 				continue
