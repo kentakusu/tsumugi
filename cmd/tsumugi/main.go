@@ -61,6 +61,15 @@ func main() {
 		os.Exit(2)
 	}
 	var err error
+	// 知らない引数は黙って捨てない（所属.json の知らないキーと同じ考え。2026-11-17 Reatex の指摘）
+	extra := map[string]int{"status": 0, "list": 0, "l": 0, "run": 1, "install": 1, "uninstall": 1, "version": 0, "--version": 0, "-v": 0, "版": 0}
+	if n, ok := extra[os.Args[1]]; ok {
+		rest := os.Args[2:]
+		if len(rest) > n || (len(rest) == 1 && rest[0] != "--dry") {
+			fmt.Fprintf(os.Stderr, "知らない引数です: %v\n\n%s", rest, usage)
+			os.Exit(2)
+		}
+	}
 	switch os.Args[1] {
 	case "status":
 		err = cmdStatus()
