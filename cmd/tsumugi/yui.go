@@ -24,7 +24,9 @@ import (
 
 // 手元の全体設定（<手元>/紡.json）。所属をまたぐもの。
 type globalConfig struct {
-	Yui struct {
+	// このマシンの名前（無ければホスト名から作る。thisMachine を見る）
+	Machine string `json:"マシン,omitempty"`
+	Yui     struct {
 		Addr string `json:"アドレス"` // 例 127.0.0.1:7952
 	} `json:"結"`
 }

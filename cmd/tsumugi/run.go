@@ -122,6 +122,9 @@ func newestRunning(all []agent, name string) (agent, bool) {
 }
 
 func reconcile(w io.Writer, affs []affiliation, dry bool) error {
+	if machineUnpinnedOnWSL() {
+		fmt.Fprintf(w, "★WSL の上ですが、紡.json に「マシン」がありません。いまの名前は %q です（自動で動くときは WSL_DISTRO_NAME が無く、名前が変わることがあります）\n", thisMachine())
+	}
 	states := map[string]affState{}
 	for _, af := range affs {
 		st, err := loadState(af)

@@ -35,16 +35,47 @@ type sessionSpec struct {
 	Schedules []scheduleSpec `json:"定時,omitempty"`
 }
 
-// このマシンの名前。WSL では必ず「ホスト名/ディストロ名」にする。
-// 同じ Windows の上に複数のディストロが在り、ホスト名だけでは見分けられないことがあるため
-// （ホスト名を設定していないディストロは Windows と同じ名前になる）。
+// このマシンの名前。決め方は次の順:
+//  1. 環境変数 TSUMUGI_MACHINE
+//  2. <手元>/紡.json の「マシン」
+//  3. WSL なら「ホスト名/ディストロ名」（WSL_DISTRO_NAME）、ほかはホスト名
+//
+// ★WSL_DISTRO_NAME は、systemd の timer や claude の背景セッションには渡らない（実測 2026-11-17）。
+// そこで 3 だけに頼ると、手で叩いたときと自動のときで名前が変わる（「よそのマシン」扱いで
+// 起こさない・定時を届けない、結の書き手が割れる）。WSL では 紡.json に「マシン」を書いておく。
 // ★結の帰属（名乗り）にも入るので、形を変えると別の書き手になる。変えない。
 func thisMachine() string {
+	if m := os.Getenv("TSUMUGI_MACHINE"); m != "" {
+		return m
+	}
+	if root, err := homeDir(); err == nil {
+		if g, err := loadGlobal(root); err == nil && g.Machine != "" {
+			return g.Machine
+		}
+	}
+	return machineFromEnv()
+}
+
+func machineFromEnv() string {
 	h, _ := os.Hostname()
 	if d := os.Getenv("WSL_DISTRO_NAME"); d != "" {
 		return h + "/" + d
 	}
 	return h
+}
+
+// WSL の上で動いていて、マシンの名前が決め打ちされていないか（run が知らせるため）。
+func machineUnpinnedOnWSL() bool {
+	if os.Getenv("TSUMUGI_MACHINE") != "" {
+		return false
+	}
+	if root, err := homeDir(); err == nil {
+		if g, err := loadGlobal(root); err == nil && g.Machine != "" {
+			return false
+		}
+	}
+	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
 
 // このマシンで動かすものか。

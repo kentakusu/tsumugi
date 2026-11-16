@@ -315,3 +315,28 @@ func TestDueDeliveries(t *testing.T) {
 		t.Fatalf("二度届けている: %+v", ds)
 	}
 }
+
+func TestThisMachineOrder(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TSUMUGI_HOME", dir)
+	t.Setenv("TSUMUGI_MACHINE", "")
+	t.Setenv("WSL_DISTRO_NAME", "D")
+	h, _ := os.Hostname()
+	if got := thisMachine(); got != h+"/D" {
+		t.Fatalf("環境から: %q", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"マシン":"m/1"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WSL_DISTRO_NAME", "")
+	if got := thisMachine(); got != "m/1" {
+		t.Fatalf("紡.json から: %q", got)
+	}
+	if machineUnpinnedOnWSL() {
+		t.Fatal("決め打ちしてあるのに知らせる")
+	}
+	t.Setenv("TSUMUGI_MACHINE", "env/2")
+	if got := thisMachine(); got != "env/2" {
+		t.Fatalf("環境変数が先: %q", got)
+	}
+}
