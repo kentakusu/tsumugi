@@ -267,7 +267,7 @@ func staleSessions(machine string, affs []affiliation, states map[string]affStat
 	return out
 }
 
-// 古い版で動いている空きセッションを、同じ会話のまま新しい版で起こし直す。
+// 古い版で動いている空きセッションを、同じ会話のまま新しい版で起こし直す（claude respawn）。
 func restartStale(w io.Writer, affs []affiliation, states map[string]affState, all []agent, dry bool) bool {
 	installed, err := claudeInstalledAt()
 	if err != nil {
@@ -280,12 +280,9 @@ func restartStale(w io.Writer, affs []affiliation, states map[string]affState, a
 			fmt.Fprintln(w, "（しない）")
 			continue
 		}
-		if _, err := runClaude("stop", a.ID); err != nil || !waitStopped(a.Name, 20*time.Second) {
-			fmt.Fprintln(w, " … 止められず失敗")
-			continue
-		}
-		if _, err := runClaudeIn(a.Cwd, "--bg", "--resume", a.SessionID); err != nil {
-			fmt.Fprintln(w, " … 失敗:", err) // 次の run の「起こし直す」が拾う
+		// 純正の claude respawn に寄せる（2.1.326。同じ会話 ID・同じ名前のまま、いまの版で起こし直す。2026-11-17 実測）
+		if _, err := runClaude("respawn", a.ID); err != nil {
+			fmt.Fprintln(w, " … 失敗:", err)
 			continue
 		}
 		justResumed(a.Name)
