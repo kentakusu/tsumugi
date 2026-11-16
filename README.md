@@ -42,7 +42,7 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi list`（`l`） | 在る。紡のセッションを番号・名前で並べる |
 | `tsumugi attach`（`a`）`<名前\|番号\|ID>` | 在る。開く。番号は `list` の左端。止まっていれば同じ会話のまま起こしてから開く |
 | `tsumugi 届ける`（`send`）`<名前> [指示…]` | 在る。外（受け口・人・道具）からセッションへ指示を渡す。すぐ渡せなければ `<所属>/届け待ち/` に置き、run が渡す（24 時間で諦めて知らせる） |
-| `tsumugi 更新`（`update`）`[--dry]` | 在る。Claude Code（`claude update`）と OS のパッケージ（Ubuntu: apt / macOS: brew / Windows: winget）を新しくする。`紡.json` の「更新」に時刻を書けば run が毎日やる。古い版で動いている空きセッションを、同じ会話のまま入れ直す |
+| `tsumugi 更新`（`update`）`[--dry] [紡\|claude\|OS\|設定項目]…` | 在る。項目を書けばそれだけ（例: `tsumugi 更新 紡`）。Claude Code（`claude update`）と OS のパッケージ（Ubuntu: apt / macOS: brew / Windows: winget）を新しくする。`紡.json` の「更新」に時刻を書けば run が毎日やる。古い版で動いている空きセッションを、同じ会話のまま入れ直す |
 | `tsumugi 設定項目`（`settings`）`[--dry]` | 在る。Claude Code の設定項目の一覧を取り、前回からの増減と、手元の設定にある「一覧に無い鍵」を出す |
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
 | `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）で確かめた。macOS（launchd）・Windows（タスク スケジューラ）は書いただけ |

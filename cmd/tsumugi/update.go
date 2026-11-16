@@ -295,7 +295,19 @@ func restartStale(w io.Writer, affs []affiliation, states map[string]affState, a
 	return any
 }
 
-func cmdUpdate(dry bool) error {
+func cmdUpdate(args []string) error {
+	dry := false
+	var only []string
+	for _, a := range args {
+		switch a {
+		case "--dry":
+			dry = true
+		case "紡", "tsumugi", "claude", "OS", "os", "設定項目", "settings":
+			only = append(only, a)
+		default:
+			return fmt.Errorf("知らない項目です: %s（紡・claude・OS・設定項目）", a)
+		}
+	}
 	root, err := homeDir()
 	if err != nil {
 		return err
@@ -307,6 +319,22 @@ func cmdUpdate(dry bool) error {
 	u := updateSpec{Self: true, Claude: true, OS: true, Settings: true}
 	if g.Update != nil {
 		u = *g.Update
+	}
+	if len(only) > 0 {
+		v := updateSpec{Notify: u.Notify, SchemaURL: u.SchemaURL}
+		for _, o := range only {
+			switch o {
+			case "紡", "tsumugi":
+				v.Self = true
+			case "claude":
+				v.Claude = true
+			case "OS", "os":
+				v.OS = true
+			case "設定項目", "settings":
+				v.Settings = true
+			}
+		}
+		u = v
 	}
 	if !dry {
 		unlock, err := lockHome(root, 2*time.Minute)
