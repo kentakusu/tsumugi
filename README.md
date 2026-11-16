@@ -45,6 +45,7 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
 | `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）で確かめた。macOS（launchd）・Windows（タスク スケジューラ）は書いただけ |
 
+純正機能との対応（純正でできることは純正に寄せる）は [docs/純正との対応.md](docs/純正との対応.md)。
 設計は [docs/設計.md](docs/設計.md)、日々の使い方（前面と背景の行き来など）は [docs/使い方.md](docs/使い方.md)。
 
 ## 作り方
