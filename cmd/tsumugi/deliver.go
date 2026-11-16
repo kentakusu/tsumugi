@@ -119,6 +119,7 @@ func deliverPrompt(w io.Writer, d delivery) bool {
 		fmt.Fprintln(w, " … 失敗:", err)
 		return false
 	}
+	justResumed(d.Name)
 	fmt.Fprintln(w, " … した")
 	return true
 }
@@ -200,6 +201,18 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 		}
 	}
 	return any, nil
+}
+
+// この run で起こし直したセッション。起こした直後は claude agents にまだ出ないことがあり、
+// そこで「止まっている」と読んで --resume すると、動いている会話の写しができる（2026-11-17 実測）。
+// 同じ run の中では、二度 起こさない。
+var resumed = map[string]bool{}
+
+var resumeWait = 15 * time.Second // テストで縮める
+
+func justResumed(name string) {
+	resumed[name] = true
+	waitRunning(name, resumeWait)
 }
 
 func giveUpPath(p string) string {

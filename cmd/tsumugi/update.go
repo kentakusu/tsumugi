@@ -279,6 +279,7 @@ func restartStale(w io.Writer, affs []affiliation, states map[string]affState, a
 			fmt.Fprintln(w, " … 失敗:", err) // 次の run の「起こし直す」が拾う
 			continue
 		}
+		justResumed(a.Name)
 		fmt.Fprintln(w, " … した")
 		any = true
 	}

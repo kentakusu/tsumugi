@@ -122,6 +122,7 @@ func newestRunning(all []agent, name string) (agent, bool) {
 }
 
 func reconcile(w io.Writer, affs []affiliation, dry bool) error {
+	resumed = map[string]bool{}
 	if machineUnpinnedOnWSL() {
 		fmt.Fprintf(w, "★WSL の上ですが、紡.json に「マシン」がありません。いまの名前は %q です（自動で動くときは WSL_DISTRO_NAME が無く、名前が変わることがあります）\n", thisMachine())
 	}
@@ -175,7 +176,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			}
 		}
 	}
-	acts := plan(affs, states, all)
+	acts := skipResumed(plan(affs, states, all))
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
 		watch(w, affs, states, all, time.Now(), dry)
@@ -221,6 +222,18 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		return err
 	}
 	return firstErr
+}
+
+// この run で指示を付けて起こしたもの・入れ直したものは、まだ一覧に出ていなくても起こさない。
+func skipResumed(acts []action) []action {
+	var out []action
+	for _, a := range acts {
+		if resumed[a.Name] && a.Verb != "止める" {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // 動いているものの会話 ID を控える。

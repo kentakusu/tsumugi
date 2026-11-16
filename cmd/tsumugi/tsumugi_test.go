@@ -374,6 +374,8 @@ func TestWatch(t *testing.T) {
 
 func TestDeliverQueue(t *testing.T) {
 	t.Setenv("TSUMUGI_MACHINE", "m")
+	resumeWait = 0
+	defer func() { resumeWait = 15 * time.Second }()
 	dir := t.TempDir()
 	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "s", Dir: dir}}}
 	now := time.Now()
@@ -408,8 +410,13 @@ func TestDeliverQueue(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("渡していない: %v %v %s", ok, err, out.String())
 	}
-	last := calls[len(calls)-1]
-	if last[0] != "--bg" || last[2] != "X" || !strings.Contains(last[3], "一つ目") || !strings.Contains(last[3], "二つ目") {
+	var last []string
+	for _, c := range calls {
+		if len(c) > 0 && c[0] == "--bg" {
+			last = c
+		}
+	}
+	if last == nil || last[0] != "--bg" || last[2] != "X" || !strings.Contains(last[3], "一つ目") || !strings.Contains(last[3], "二つ目") {
 		t.Fatalf("渡し方が違う: %q", last)
 	}
 	if qs, _ := loadQueue(af); len(qs) != 0 {
@@ -471,5 +478,14 @@ func TestDiffSnap(t *testing.T) {
 	}
 	if diffSnap(schemaSnap{}, cur) != "" {
 		t.Fatal("初回（前が空）に全部を「増えた」と言った")
+	}
+}
+
+func TestSkipResumed(t *testing.T) {
+	resumed = map[string]bool{"a": true}
+	defer func() { resumed = map[string]bool{} }()
+	got := skipResumed([]action{{Name: "a", Verb: "起こし直す"}, {Name: "b", Verb: "起こし直す"}, {Name: "a", Verb: "止める"}})
+	if len(got) != 2 || got[0].Name != "b" || got[1].Verb != "止める" {
+		t.Fatalf("同じ run で起こしたものを、もう一度起こそうとした: %+v", got)
 	}
 }
