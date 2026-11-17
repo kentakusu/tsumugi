@@ -125,7 +125,7 @@ func notify(w io.Writer, af affiliation, msg string) {
 	}
 	cmd := exec.Command(expandHome(af.Watch.Notify[0]), af.Watch.Notify[1:]...)
 	cmd.Stdin = bytes.NewBufferString(msg + "\n")
-	cmd.Env = append(os.Environ(), "TSUMUGI_MESSAGE="+msg)
+	cmd.Env = append(os.Environ(), "TSUMUGI_MESSAGE="+msg, "TSUMUGI_IN_RUN=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(w, "%s: 知らせられませんでした: %v: %s\n", af.ID, err, out)
 	}

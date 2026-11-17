@@ -316,6 +316,11 @@ func cmdDeliver(args []string, stdin io.Reader) error {
 		return err
 	}
 	fmt.Printf("届け待ちに置きました: %s\n", p)
+	// run の中（見張りの「知らせる」から呼ばれたとき）は、錠を run が持っているので、置くだけにする
+	// （次の run が渡す）。待つと run が止まる。
+	if os.Getenv("TSUMUGI_IN_RUN") != "" {
+		return nil
+	}
 	// すぐ渡してみる。錠が取れなければ、5 分おきの run に任せる。
 	unlock, err := lockHome(root, 60*time.Second)
 	if err != nil {

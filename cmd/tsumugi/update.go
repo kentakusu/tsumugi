@@ -218,7 +218,7 @@ func runNotify(w io.Writer, cmdline []string, msg string) {
 	}
 	cmd := exec.Command(expandHome(cmdline[0]), cmdline[1:]...)
 	cmd.Stdin = bytes.NewBufferString(msg + "\n")
-	cmd.Env = append(os.Environ(), "TSUMUGI_MESSAGE="+msg)
+	cmd.Env = append(os.Environ(), "TSUMUGI_MESSAGE="+msg, "TSUMUGI_IN_RUN=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		fmt.Fprintf(w, "知らせられませんでした: %v: %s\n", err, out)
 	}
