@@ -53,7 +53,7 @@ type watchState struct {
 // ★state の working は、作業していなくても出る（2026-11-17 実測: status が idle のまま
 // state が working のセッションがある）。state だけで「長すぎ」を数えると毎回鳴る。
 func agentState(a agent) string {
-	if a.State == "blocked" || a.Status == "blocked" {
+	if a.State == "blocked" || a.Status == "blocked" || a.Status == "waiting" {
 		return "blocked"
 	}
 	return a.Status
