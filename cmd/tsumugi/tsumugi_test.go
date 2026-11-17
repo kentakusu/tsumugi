@@ -530,3 +530,24 @@ func TestAdoptCopy(t *testing.T) {
 	}
 	knownIDs = map[string]string{}
 }
+
+func TestRecordSkipsUnmanaged(t *testing.T) {
+	dir := t.TempDir()
+	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "s"}}}
+	os.MkdirAll(filepath.Join(dir, "a"), 0o700)
+	states := map[string]affState{"a": {Sessions: map[string]sessionState{}}}
+	all := []agent{{Name: "s", SessionID: "HAND", Pid: 1, StartedAt: 1}}
+	startedNow = map[string]bool{}
+	if err := record([]affiliation{af}, states, all); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := states["a"].Sessions["s"]; ok {
+		t.Fatal("手で開いた同名のセッションを控えた")
+	}
+	startedNow["s"] = true
+	defer func() { startedNow = map[string]bool{} }()
+	record([]affiliation{af}, states, all)
+	if states["a"].Sessions["s"].SessionID != "HAND" {
+		t.Fatal("この run で起こしたものを控えていない")
+	}
+}

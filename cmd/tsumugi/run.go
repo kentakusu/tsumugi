@@ -160,6 +160,7 @@ func newestRunning(all []agent, name string) (agent, bool) {
 
 func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	resumed = map[string]bool{}
+	startedNow = map[string]bool{}
 	if machineUnpinnedOnWSL() {
 		fmt.Fprintf(w, "★WSL の上ですが、紡.json に「マシン」がありません。いまの名前は %q です（自動で動くときは WSL_DISTRO_NAME が無く、名前が変わることがあります）\n", thisMachine())
 	}
@@ -214,6 +215,17 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			}
 		}
 	}
+	machine := thisMachine()
+	for _, af := range affs {
+		for _, sp := range af.Sessions {
+			if _, known := states[af.ID].Sessions[sp.Name]; known || !sp.here(machine) {
+				continue
+			}
+			if _, ok := newestRunning(all, sp.Name); ok {
+				fmt.Fprintf(w, "★%s/%s: 同じ名前のセッションが紡の外で動いています。紡は控えず、触りません（閉じれば、次の run で紡が起こします）\n", af.ID, sp.Name)
+			}
+		}
+	}
 	acts := skipResumed(plan(affs, states, all))
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
@@ -241,6 +253,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		}
 		fmt.Fprintln(w, " … した")
 		if act.Verb != "止める" {
+			startedNow[act.Name] = true
 			waitRunning(act.Name, 15*time.Second) // 起こした直後は claude agents にまだ出ないことがある
 		}
 		if act.Verb == "止める" {
@@ -274,11 +287,21 @@ func skipResumed(acts []action) []action {
 	return out
 }
 
+// この run で紡が起こしたもの（控えてよいもの）。
+var startedNow = map[string]bool{}
+
 // 動いているものの会話 ID を控える。
+// ★控えるのは、紡が起こしたもの（控えが既にあるか、この run で起こしたもの）だけ。
+// 所属.json を置いたときに同じ名前のセッションが手で動いていると、それを控えてしまい、
+// 以後は「起こし直す」（フラグ無し）になって、最初の指示・結の決まり・メモリを切る設定・env が
+// 一度も渡らなかった（2026-11-17 yui-windows の実測）。
 func record(affs []affiliation, states map[string]affState, all []agent) error {
 	for _, af := range affs {
 		st := states[af.ID]
 		for _, s := range af.Sessions {
+			if _, known := st.Sessions[s.Name]; !known && !startedNow[s.Name] {
+				continue
+			}
 			if a, ok := newestRunning(all, s.Name); ok {
 				prev := st.Sessions[s.Name]
 				if prev.SessionID != a.SessionID {

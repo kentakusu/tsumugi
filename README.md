@@ -45,7 +45,7 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi 更新`（`update`）`[--dry] [紡\|claude\|OS\|設定項目]…` | 在る。項目を書けばそれだけ（例: `tsumugi 更新 紡`）。Claude Code（`claude update`）と OS のパッケージ（Ubuntu: apt / macOS: brew / Windows: winget）を新しくする。`紡.json` の「更新」に時刻を書けば run が毎日やる。古い版で動いている空きセッションを、同じ会話のまま入れ直す |
 | `tsumugi 設定項目`（`settings`）`[--dry]` | 在る。Claude Code の設定項目の一覧を取り、前回からの増減と、手元の設定にある「一覧に無い鍵」を出す |
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
-| `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）で確かめた。macOS（launchd）・Windows（タスク スケジューラ）は書いただけ |
+| `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）・Windows（タスク スケジューラ・管理者不要・TSUMUGI_HOME もタスクに渡る）で確かめた。macOS（launchd）は書いただけ |
 
 純正機能との対応（純正でできることは純正に寄せる）は [docs/純正との対応.md](docs/純正との対応.md)。
 設計は [docs/設計.md](docs/設計.md)、日々の使い方（前面と背景の行き来など）は [docs/使い方.md](docs/使い方.md)。
@@ -59,7 +59,7 @@ go build -o tsumugi ./cmd/tsumugi      # Windows なら -o tsumugi.exe
 go test ./...
 ```
 
-Linux で動かして確かめています。Windows・macOS 向けは**ビルドが通ることまで**しか確かめていません。
+Linux（Ubuntu）と Windows で動かして確かめています。macOS 向けは**ビルドが通ることまで**しか確かめていません。
 
 ## 所属の設定
 
