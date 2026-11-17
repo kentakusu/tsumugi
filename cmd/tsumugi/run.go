@@ -112,7 +112,10 @@ func startArgs(aff string, s sessionSpec) []string {
 		args = append(args, "--model", s.Model)
 	}
 	if s.From != "" {
-		return append(args, "--resume", s.From) // 動いている会話なら写しになる
+		// 動いている会話なら写しになる。止まっている会話だと、同じ ID のまま起きることもある
+		// （2.1.326・Reatex 実測。daemon.log「bg claimed-spare」）。どちらでも最初の指示は付けて渡す
+		// （付けないと、前のターンのまま止まっていて、何も始まらない）。
+		args = append(args, "--resume", s.From)
 	}
 	if s.Prompt != "" {
 		args = append(args, s.Prompt)
