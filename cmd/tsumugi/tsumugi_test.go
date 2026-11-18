@@ -345,7 +345,7 @@ func TestWatch(t *testing.T) {
 	t.Setenv("TSUMUGI_MACHINE", "m")
 	af := affiliation{ID: "a", Sessions: []sessionSpec{{Name: "s"}}, Watch: watchSpec{Blocked: "10m"}}
 	states := map[string]affState{"a": {Sessions: map[string]sessionState{"s": {SessionID: "X"}}}}
-	all := []agent{{Name: "s", SessionID: "X", Pid: 1, StartedAt: 1, State: "blocked"}}
+	all := []agent{{Name: "s", SessionID: "X", Pid: 1, StartedAt: 1, State: "blocked", Status: "waiting"}}
 	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.Local)
 	var out bytes.Buffer
 	watch(&out, []affiliation{af}, states, all, t0, false)
@@ -549,5 +549,11 @@ func TestRecordSkipsUnmanaged(t *testing.T) {
 	record([]affiliation{af}, states, all)
 	if states["a"].Sessions["s"].SessionID != "HAND" {
 		t.Fatal("この run で起こしたものを控えていない")
+	}
+}
+
+func TestIdleBlockedIsNotStuck(t *testing.T) {
+	if agentState(agent{State: "blocked", Status: "idle"}) == "blocked" {
+		t.Fatal("ターンが終わって人を待っているだけのものを、止まりと数えた")
 	}
 }

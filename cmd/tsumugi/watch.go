@@ -53,7 +53,10 @@ type watchState struct {
 // ★state の working は、作業していなくても出る（2026-11-17 実測: status が idle のまま
 // state が working のセッションがある）。state だけで「長すぎ」を数えると毎回鳴る。
 func agentState(a agent) string {
-	if a.State == "blocked" || a.Status == "blocked" || a.Status == "waiting" {
+	// ★state が blocked でも status が idle なら、ターンは終わっていて「人に何か頼んで待っている」だけ
+	// （定時も届けも渡る）。止まりとして数えない（2026-11-18 cc-34 で誤報）。
+	// 止まっているのは、status が waiting（質問・権限の確認で止まっている）か blocked のとき。
+	if a.Status == "waiting" || a.Status == "blocked" || (a.State == "blocked" && a.Status != "idle") {
 		return "blocked"
 	}
 	return a.Status
