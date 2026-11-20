@@ -237,6 +237,15 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	}
 	var firstErr error
 	for _, act := range acts {
+		// ★Claude Code の自動更新は、背景のサービスを建て直して、止まったセッションを自分で起こし直す。
+		// そのすぐ後だと、一覧にまだ出ていないだけのセッションへ --resume して写しを作る
+		// （2026-11-21 07:48 実測: 2.1.330 への更新直後に 2 つの写しができた）。起こし直す前に少し待って見直す。
+		if act.Verb == "起こし直す" && !dry {
+			if _, back := waitRunningID(act.Name, states[act.Affiliation].Sessions[act.Name].SessionID, settleWait); back {
+				fmt.Fprintf(w, "%s/%s: 起こし直そうとしたら、自分で起きていた（Claude Code が起こし直した）\n", act.Affiliation, act.Name)
+				continue
+			}
+		}
 		fmt.Fprintf(w, "%s/%s: %s", act.Affiliation, act.Name, act.Verb)
 		if dry {
 			fmt.Fprintf(w, "（しない）claude %q\n", act.Args)
@@ -273,6 +282,24 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		return err
 	}
 	return firstErr
+}
+
+var settleWait = 30 * time.Second // テストで縮める
+
+// 控えた会話 ID（無ければ名前）で動いているものが出るのを待つ。
+func waitRunningID(name, id string, d time.Duration) (agent, bool) {
+	for end := time.Now().Add(d); ; time.Sleep(2 * time.Second) {
+		if all, err := listAllAgents(); err == nil {
+			for _, a := range all {
+				if a.Pid > 0 && (a.SessionID == id || (id == "" && a.Name == name)) {
+					return a, true
+				}
+			}
+		}
+		if !time.Now().Before(end) {
+			return agent{}, false
+		}
+	}
 }
 
 // この run で指示を付けて起こしたもの・入れ直したものは、まだ一覧に出ていなくても起こさない。
