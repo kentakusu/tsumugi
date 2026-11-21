@@ -624,3 +624,33 @@ func TestChannelDeliver(t *testing.T) {
 		t.Fatal("ソケットが無いのに渡せたことにした")
 	}
 }
+
+func TestChannelDoesNotStealLiveSocket(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "tsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	t.Setenv("TSUMUGI_HOME", dir)
+	first := make(chan map[string]any, 2)
+	second := make(chan map[string]any, 2)
+	go channelListen("a", "s", func(v any) { first <- v.(map[string]any) })
+	p := channelSock(dir, "a", "s")
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(p); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	channelListen("a", "s", func(v any) { second <- v.(map[string]any) }) // すぐ戻る（奪わない）
+	if ok, err := channelDeliver(dir, "a", "s", "x"); !ok || err != nil {
+		t.Fatalf("渡せない: %v %v", ok, err)
+	}
+	select {
+	case <-first:
+	case <-second:
+		t.Fatal("あとから起きた側がソケットを奪った")
+	case <-time.After(2 * time.Second):
+		t.Fatal("どちらにも届かない")
+	}
+}

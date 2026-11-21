@@ -104,6 +104,14 @@ func channelListen(aff, name string, send func(any)) {
 	}
 	p := channelSock(root, aff, name)
 	os.MkdirAll(filepath.Dir(p), 0o700)
+	// ★同じ名前のセッションが 2 つ動いていると（Stop-Process で殺したものを Claude Code が元の引数で
+	// 起こし直したなど）、あとから起きた側がソケットを奪い、--channels の無いほうへ流して黙って捨てていた
+	// （2026-11-21 Windows で実測）。誰かが待っているソケットは奪わない。残っているだけのものは片付ける。
+	if c, err := net.DialTimeout("unix", p, time.Second); err == nil {
+		c.Close()
+		fmt.Fprintln(os.Stderr, "tsumugi channel: ほかのセッションがすでに待っているので、待たない:", p)
+		return
+	}
 	os.Remove(p) // 前のセッションの残り
 	ln, err := net.Listen("unix", p)
 	if err != nil {
@@ -121,7 +129,7 @@ func channelListen(aff, name string, send func(any)) {
 			c.SetDeadline(time.Now().Add(30 * time.Second))
 			b, err := io.ReadAll(io.LimitReader(c, 1<<20))
 			if err != nil || strings.TrimSpace(string(b)) == "" {
-				return
+				return // 生きているかの確かめ（つないで何も書かずに閉じる）も、ここで終わる
 			}
 			send(map[string]any{"jsonrpc": "2.0", "method": "notifications/claude/channel",
 				"params": map[string]any{"content": strings.TrimSpace(string(b)), "meta": map[string]string{"from": "tsumugi"}}})
