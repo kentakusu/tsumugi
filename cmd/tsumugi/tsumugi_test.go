@@ -726,3 +726,16 @@ func TestAlignKeepsSymlinkAndOrder(t *testing.T) {
 		t.Fatal("控えをリポジトリの中に置いた")
 	}
 }
+
+func TestLoadGlobalToleratesUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"マシン":"m/1","未来の鍵":[1],"結":{"アドレス":"127.0.0.1:1"}}`), 0o600)
+	g, err := loadGlobal(dir)
+	if err != nil || g.Machine != "m/1" || g.Yui.Addr != "127.0.0.1:1" {
+		t.Fatalf("知らない鍵があると、ほかの鍵まで読めない: %+v %v", g, err)
+	}
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"マシン":`), 0o600)
+	if _, err := loadGlobal(dir); err == nil {
+		t.Fatal("壊れた JSON を通した")
+	}
+}

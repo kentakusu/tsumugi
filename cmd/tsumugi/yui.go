@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -54,10 +55,24 @@ func loadGlobal(root string) (globalConfig, error) {
 	dec := json.NewDecoder(strings.NewReader(string(b)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&g); err != nil {
-		return g, fmt.Errorf("%s の書き方が違います: %w", p, err)
+		// ★知らない鍵は、新しい版の紡が足したものかもしれない。厳密に断ると、古い版の紡では
+		// マシンの名前・チャネル・更新・結のアドレスが全部読めなくなり、黙って振る舞いが変わる
+		// （2026-11-22 Windows で、結への道が 6 時間 45 分 閉じた）。知らない鍵は飛ばして読み、知らせる。
+		if !strings.Contains(err.Error(), "unknown field") {
+			return g, fmt.Errorf("%s の書き方が違います: %w", p, err)
+		}
+		g = globalConfig{}
+		if err := json.Unmarshal(b, &g); err != nil {
+			return g, fmt.Errorf("%s の書き方が違います: %w", p, err)
+		}
+		warnOnce.Do(func() {
+			fmt.Fprintf(os.Stderr, "tsumugi: %s に、この版の紡が知らない鍵があります（%v）。飛ばして読みます。紡が古いなら tsumugi 更新 紡\n", p, err)
+		})
 	}
 	return g, nil
 }
+
+var warnOnce sync.Once
 
 // 結のデーモンのアドレス。環境変数 TSUMUGI_YUI が先。
 func yuiAddr() (string, error) {
