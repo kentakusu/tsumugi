@@ -102,6 +102,17 @@ func loadQueue(af affiliation) ([]queued, error) {
 // Claude Code が写し（新しい会話 ID）を作ったときは、その ID を返す（呼ぶ側が控えを書き換える）。
 // 渡せなかった理由は w に書く。
 func deliverPrompt(w io.Writer, d delivery) (bool, string) {
+	// チャネルで渡せれば、止めずに渡す（作業中でも、セッションの中で次のターンまで待ってくれる）。
+	if d.Running != nil {
+		if root, err := homeDir(); err == nil {
+			if ok, err := channelDeliver(root, d.Affiliation, d.Name, d.Prompt); ok {
+				fmt.Fprintln(w, " … した（チャネル・止めずに）")
+				return true, ""
+			} else if err != nil {
+				fmt.Fprintln(w, " … チャネルが応えないので、止めて渡す:", err)
+			}
+		}
+	}
 	if d.Running != nil && d.Running.Status != "idle" {
 		fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
 		return false, ""

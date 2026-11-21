@@ -26,6 +26,9 @@ import (
 type globalConfig struct {
 	// このマシンの名前（無ければホスト名から作る。thisMachine を見る）
 	Machine string `json:"マシン,omitempty"`
+	// チャネル（動いているセッションへ止めずに渡す）を使うか。使うなら、紡が起こすセッションに --channels を付ける。
+	// マシンの管理設定に allowedChannelPlugins が要る（channel.go）。
+	Channel bool `json:"チャネル,omitempty"`
 	// 更新（Claude Code と環境を新しくする）。update.go
 	Update *updateSpec `json:"更新,omitempty"`
 	Yui    struct {

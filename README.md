@@ -44,6 +44,7 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi 届ける`（`send`）`<名前> [指示…]` | 在る。外（受け口・人・道具）からセッションへ指示を渡す。すぐ渡せなければ `<所属>/届け待ち/` に置き、run が渡す（24 時間で諦めて知らせる） |
 | `tsumugi 更新`（`update`）`[--dry] [紡\|claude\|OS\|設定項目]…` | 在る。項目を書けばそれだけ（例: `tsumugi 更新 紡`）。Claude Code（`claude update`）と OS のパッケージ（Ubuntu: apt / macOS: brew / Windows: winget）を新しくする。`紡.json` の「更新」に時刻を書けば run が毎日やる。古い版で動いている空きセッションを、同じ会話のまま入れ直す |
 | `tsumugi 設定項目`（`settings`）`[--dry]` | 在る。Claude Code の設定項目の一覧を取り、前回からの増減と、手元の設定にある「一覧に無い鍵」を出す |
+| `tsumugi チャネル準備`（`channel-setup`） | 在る。動いているセッションへ**止めずに**渡すチャネル（Claude Code の channels・研究プレビュー）の準備。プラグインを入れ、マシンの管理設定に許可があるかを見る（無ければ打つものを出す） |
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
 | `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）・Windows（タスク スケジューラ・管理者不要・TSUMUGI_HOME もタスクに渡る）で確かめた。macOS（launchd）は書いただけ |
 
@@ -99,6 +100,10 @@ run のたびに、紡のセッションの様子（`claude agents --json` の s
 ```json
 { "マシン": "myhost/Ubuntu", "結": { "アドレス": "127.0.0.1:7952" } }
 ```
+
+チャネル（動いているセッションへ止めずに渡す）: `tsumugi チャネル準備` が全部 ○ になったら `"チャネル": true` を足す。
+紡が起こすセッションに `--channels plugin:tsumugi-channel@tsumugi` が付き、定時と届けはソケット（`<手元>/<所属>/<名前>.sock`）
+へ書くだけになる（止めない・作業中でも次のターンで入る）。チャネルが応えないセッションには、今までどおり止めて渡す。
 
 更新（セキュリティのため、いつも最新を使う）:
 

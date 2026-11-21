@@ -104,10 +104,17 @@ func startArgs(aff string, s sessionSpec) []string {
 		set[k] = v
 	}
 	settings, _ := json.Marshal(set)
-	args := []string{"--bg", "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule}
+	args := []string{"--bg"}
+	if channelOn() {
+		// ★--channels は値をいくつでも取るので、すぐ後に別のフラグ（-n）を置く。
+		// 指示（最後の引数）の直前に置くと、指示がチャネルの名前として食われる（実測）。
+		args = append(args, "--channels", channelPlugin)
+	}
+	args = append(args, "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule)
 	if s.Permission != "" {
 		args = append(args, "--permission-mode", s.Permission)
 	}
+
 	if s.Model != "" {
 		args = append(args, "--model", s.Model)
 	}
@@ -428,4 +435,14 @@ func waitStopped(name string, d time.Duration) bool {
 		}
 	}
 	return false
+}
+
+// 紡.json の「チャネル」。
+func channelOn() bool {
+	root, err := homeDir()
+	if err != nil {
+		return false
+	}
+	g, err := loadGlobal(root)
+	return err == nil && g.Channel
 }

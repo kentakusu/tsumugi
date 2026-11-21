@@ -1,0 +1,11 @@
+{
+  "name": "tsumugi",
+  "owner": { "name": "kentakusu" },
+  "plugins": [
+    {
+      "name": "tsumugi-channel",
+      "source": "./plugin/tsumugi-channel",
+      "description": "紡（tsumugi）から、動いているセッションへ止めずに指示を入れるチャネル（Claude Code の channels）"
+    }
+  ]
+}

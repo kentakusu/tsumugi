@@ -1,0 +1,6 @@
+{
+  "name": "tsumugi-channel",
+  "version": "0.1.0",
+  "description": "紡（tsumugi）から、動いているセッションへ止めずに指示を入れるチャネル。実体は tsumugi channel（PATH に tsumugi が要る）",
+  "homepage": "https://github.com/kentakusu/tsumugi"
+}

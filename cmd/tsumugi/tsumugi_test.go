@@ -595,3 +595,32 @@ func TestStepStreamsLines(t *testing.T) {
 		t.Fatalf("同じ行が続いたのを落としていない: %s", got)
 	}
 }
+
+func TestChannelDeliver(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "tsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	t.Setenv("TSUMUGI_HOME", dir)
+	got := make(chan map[string]any, 1)
+	go channelListen("a", "s", func(v any) { got <- v.(map[string]any) })
+	p := channelSock(dir, "a", "s")
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(p); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ok, err := channelDeliver(dir, "a", "s", "【定時】ためし")
+	if !ok || err != nil {
+		t.Fatalf("渡せない: %v %v", ok, err)
+	}
+	m := <-got
+	if m["method"] != "notifications/claude/channel" || !strings.Contains(fmt.Sprint(m["params"]), "【定時】ためし") {
+		t.Fatalf("流したものが違う: %v", m)
+	}
+	if ok, _ := channelDeliver(dir, "a", "無い", "x"); ok {
+		t.Fatal("ソケットが無いのに渡せたことにした")
+	}
+}

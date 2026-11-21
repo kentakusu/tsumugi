@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "tsumugi": { "command": "tsumugi", "args": ["channel"] }
+  }
+}

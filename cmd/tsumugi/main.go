@@ -50,6 +50,8 @@ const usage = `使い方: tsumugi <コマンド>
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
 
+  チャネル準備, channel-setup
+                      動いているセッションへ止めずに渡すチャネルの準備（プラグインと管理設定を確かめる）
   version, --version   版（git の commit）を出す
 
 所属の設定は $TSUMUGI_HOME/<所属>/所属.json（TSUMUGI_HOME が無ければ ~/.tsumugi）。
@@ -86,6 +88,10 @@ func main() {
 		err = cmdInstall(dry, os.Args[1] == "uninstall")
 	case "yui":
 		err = cmdYui(os.Args[2:])
+	case "channel":
+		err = cmdChannel()
+	case "チャネル準備", "channel-setup":
+		err = cmdChannelSetup()
 	case "run":
 		dry := len(os.Args) > 2 && os.Args[2] == "--dry"
 		err = cmdRun(dry)
