@@ -11,6 +11,7 @@ package main
 //            "入れ直し": true, "設定項目": true, "知らせる": ["~/bin/notify.sh"] }
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -187,17 +188,45 @@ func step(w io.Writer, dry bool, name string, args ...string) bool {
 		return true
 	}
 	// どの段が長かったかを、記録だけで分かるようにする（2026-11-21 yui-windows の提案）
-	defer func() { fmt.Fprintf(w, "[%s] （%s かかった）\n", time.Now().Format("15:04:05"), time.Since(start).Round(time.Second)) }()
+	defer func() {
+		fmt.Fprintf(w, "[%s] （%s かかった）\n", time.Now().Format("15:04:05"), time.Since(start).Round(time.Second))
+	}()
 	ctx, cancel := context.WithTimeout(context.Background(), stepTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-	b, err := cmd.CombinedOutput()
-	tail := string(b)
-	if len(tail) > 2000 {
-		tail = "…" + tail[len(tail)-2000:]
+	// 出力は行ごとに時刻を付けて流す（末尾だけ残すと、どのパッケージが長かったかが消える。
+	// 2026-11-21 yui-windows の指摘）。進み具合の表示（\r で上書きする行）は、行の区切りとして扱い、
+	// 同じ行が続くものは落とす。1 段で残すのは 3000 行まで。
+	pr, pw := io.Pipe()
+	cmd.Stdout, cmd.Stderr = pw, pw
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sc := bufio.NewScanner(pr)
+		sc.Buffer(make([]byte, 64*1024), 1<<20)
+		sc.Split(splitCRLF)
+		n, last := 0, ""
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" || line == last || isSpinner(line) {
+				continue
+			}
+			last = line
+			if n++; n <= 3000 {
+				fmt.Fprintf(w, "[%s] %s\n", time.Now().Format("15:04:05"), line)
+			}
+		}
+		if n > 3000 {
+			fmt.Fprintf(w, "…（ほか %d 行は省いた）\n", n-3000)
+		}
+	}()
+	err := cmd.Start()
+	if err == nil {
+		err = cmd.Wait()
 	}
-	fmt.Fprint(w, tail)
+	pw.Close()
+	<-done
 	if ctx.Err() == context.DeadlineExceeded {
 		fmt.Fprintf(w, "→ %s たっても終わらないので打ち切った\n", stepTimeout)
 		return false
@@ -226,9 +255,10 @@ func osUpdateCommands() [][]string {
 		}
 	case "windows":
 		if _, err := exec.LookPath("winget"); err == nil {
-			// ★--scope user: 管理者権限（UAC）が要るものは無人では入らず、確認の画面を待って
-			// 何時間も返らない（2026-11-21 この段で約 14 時間）。ユーザーの範囲だけを上げ、
-			// 残りは一覧（winget upgrade）を記録に出して、人が手で入れる。
+			// ★--scope user: 2026-11-21 この段が約 14 時間 返らなかった。鈴木さんの確認では UAC の確認画面で
+			// 止まっていた（--disable-interactivity を付けていても、管理者が要るものがすぐ失敗して返る件と、
+			// 画面を待つ件の両方がある）。ユーザーの範囲だけを上げ、残りは一覧（winget upgrade）を記録に出して、
+			// 人が手で入れる。どの件が長いかは、行ごとの時刻で次の記録から読める。
 			return [][]string{
 				{"winget", "upgrade", "--all", "--scope", "user", "--silent", "--disable-interactivity",
 					"--accept-source-agreements", "--accept-package-agreements"},
@@ -386,4 +416,30 @@ func cmdUpdate(args []string) error {
 	}
 	runUpdate(os.Stdout, root, u, dry)
 	return nil
+}
+
+// \r と \n のどちらでも行を区切る。
+func splitCRLF(data []byte, atEOF bool) (int, []byte, error) {
+	for i, b := range data {
+		if b == '\n' || b == '\r' {
+			return i + 1, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
+// winget のくるくる（- \ | /）や、進み具合の棒だけの行。
+func isSpinner(l string) bool {
+	if len(l) <= 1 {
+		return true
+	}
+	for _, r := range l {
+		if !strings.ContainsRune("█▒░ -\\|/0123456789.%KMGBkb", r) {
+			return false
+		}
+	}
+	return true
 }

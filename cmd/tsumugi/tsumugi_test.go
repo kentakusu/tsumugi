@@ -579,3 +579,19 @@ func TestLastDueWithin(t *testing.T) {
 		t.Fatalf("幅の外を拾った: %v", d)
 	}
 }
+
+func TestStepStreamsLines(t *testing.T) {
+	var out bytes.Buffer
+	if !step(&out, false, "sh", "-c", `printf 'alpha\rbeta\n-\n\\\ngamma\ngamma\n'`) {
+		t.Fatal("失敗した")
+	}
+	got := out.String()
+	for _, want := range []string{"] alpha\n", "] beta\n", "] gamma\n", "かかった"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("%q が無い: %s", want, got)
+		}
+	}
+	if strings.Count(got, "] gamma\n") != 1 {
+		t.Fatalf("同じ行が続いたのを落としていない: %s", got)
+	}
+}
