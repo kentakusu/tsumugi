@@ -44,6 +44,7 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi 届ける`（`send`）`<名前> [指示…]` | 在る。外（受け口・人・道具）からセッションへ指示を渡す。すぐ渡せなければ `<所属>/届け待ち/` に置き、run が渡す（24 時間で諦めて知らせる） |
 | `tsumugi 更新`（`update`）`[--dry] [紡\|claude\|OS\|設定項目]…` | 在る。項目を書けばそれだけ（例: `tsumugi 更新 紡`）。Claude Code（`claude update`）と OS のパッケージ（Ubuntu: apt / macOS: brew / Windows: winget）を新しくする。`紡.json` の「更新」に時刻を書けば run が毎日やる。古い版で動いている空きセッションを、同じ会話のまま入れ直す |
 | `tsumugi 設定項目`（`settings`）`[--dry]` | 在る。Claude Code の設定項目の一覧を取り、前回からの増減と、手元の設定にある「一覧に無い鍵」を出す |
+| `tsumugi 設定そろえ`（`align-settings`）`[--dry]` | 在る。Claude Code のユーザー設定（`~/.claude/settings.json`）を、基本の値 [`settings/claude-base.json`](settings/claude-base.json) と比べる。書き換えるのは `紡.json` の `"設定を合わせる"` に載せた鍵だけ（`["*"]` で全部）。前の値・後の値を `<手元>/設定そろえの記録.log` に残す。毎日の更新（`設定項目`）でも見る |
 | `tsumugi チャネル準備`（`channel-setup`） | 在る。動いているセッションへ**止めずに**渡すチャネル（Claude Code の channels・研究プレビュー）の準備。プラグインを入れ、マシンの管理設定に許可があるかを見る（無ければ打つものを出す） |
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
 | `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）・Windows（タスク スケジューラ・管理者不要・TSUMUGI_HOME もタスクに渡る）で確かめた。macOS（launchd）は書いただけ |
@@ -144,6 +145,7 @@ Claude Code の背景セッションには渡りません。書かないと、�
 | `メモ` | | 人が読むための書き置き |
 
 紡が起こしたセッションには、Claude Code のローカルメモリを切る設定（`autoMemoryEnabled: false`）を必ず付けます。
+質問の道具（AskUserQuestion）も使えなくします（`--disallowedTools`）。無人のセッションでは、質問の画面が人の答えを待って止まるためです（`askUserQuestionTimeout` は背景のセッションに効かない）。
 
 紡は起こしたセッションの会話 ID を `<所属>/状態.json` に控えます。止まったものは同じ会話を続ける形で起こし直します
 （`claude --bg --resume <ID>` をフラグ無しで。フラグを付けると写しになるため）。

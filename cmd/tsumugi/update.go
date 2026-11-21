@@ -160,6 +160,20 @@ func runUpdate(w io.Writer, root string, u updateSpec, dry bool) {
 		}
 	}
 	if u.Settings {
+		fmt.Fprintf(out, "[%s] Claude の設定と基本の値\n", time.Now().Format("15:04:05"))
+		if base, err := fetchBase(); err != nil {
+			notes = append(notes, "★基本の設定を取れない: "+err.Error())
+		} else if p, err := userSettingsPath(); err == nil {
+			var g globalConfig
+			if gg, err := loadGlobal(root); err == nil {
+				g = gg
+			}
+			if n, err := alignSettings(out, base, p, g.AlignSettings, dry, root); err != nil {
+				notes = append(notes, "★設定を合わせられない: "+err.Error())
+			} else if n > 0 {
+				notes = append(notes, fmt.Sprintf("Claude の設定を %d か所 基本の値に合わせた（設定そろえの記録.log）", n))
+			}
+		}
 		fmt.Fprintf(out, "[%s] 設定項目\n", time.Now().Format("15:04:05"))
 		if diff, err := checkSettings(out, root, u.SchemaURL, dry); err != nil {
 			notes = append(notes, "★設定項目を確かめられない: "+err.Error())

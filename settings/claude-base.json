@@ -1,0 +1,20 @@
+{
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "skipDangerousModePermissionPrompt": true,
+  "language": "日本語",
+  "theme": "dark",
+  "tui": "fullscreen",
+  "editorMode": "normal",
+  "verbose": true,
+  "remoteControlAtStartup": true,
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "crossSessionInbound": "accept",
+  "idleCompaction": true,
+  "autoMemoryEnabled": false,
+  "cleanupPeriodDays": 30,
+  "autoUpdatesChannel": "latest",
+  "worktree": { "baseRef": "fresh" },
+  "extraKnownMarketplaces": { "tsumugi": { "source": { "source": "github", "repo": "kentakusu/tsumugi" } } },
+  "enabledPlugins": { "tsumugi-channel@tsumugi": true }
+}

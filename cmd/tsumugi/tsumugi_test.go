@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -659,5 +660,42 @@ func TestCleanEnv(t *testing.T) {
 	got := cleanEnv([]string{"A=1", "TSUMUGI_SESSION=x", "TSUMUGI_AFFILIATION=y", "TSUMUGI_HOME=/h"})
 	if strings.Join(got, ",") != "A=1,TSUMUGI_HOME=/h" {
 		t.Fatalf("名乗りの環境変数が残った: %v", got)
+	}
+}
+
+func TestAlignSettings(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	os.WriteFile(p, []byte(`{"hooks":{"Stop":[]},"permissions":{"defaultMode":"default","deny":["X"]},"verbose":true}`), 0o600)
+	base := map[string]any{"permissions": map[string]any{"defaultMode": "bypassPermissions"}, "verbose": true, "autoMemoryEnabled": false}
+	var out bytes.Buffer
+	// 許しが無ければ、ずれを出すだけ
+	if n, err := alignSettings(&out, base, p, nil, false, dir); err != nil || n != 0 || !strings.Contains(out.String(), "ずれ: autoMemoryEnabled") {
+		t.Fatalf("許し無しで書き換えた、またはずれを出さない: %d %v %s", n, err, out.String())
+	}
+	// 1 つだけ許す
+	out.Reset()
+	if n, _ := alignSettings(&out, base, p, []string{"autoMemoryEnabled"}, false, dir); n != 1 {
+		t.Fatalf("許した 1 つを合わせない: %d %s", n, out.String())
+	}
+	b, _ := os.ReadFile(p)
+	var m map[string]any
+	json.Unmarshal(b, &m)
+	if m["autoMemoryEnabled"] != false || m["permissions"].(map[string]any)["defaultMode"] != "default" {
+		t.Fatalf("許していない鍵まで変えた: %s", b)
+	}
+	if _, ok := m["hooks"]; !ok || len(m["permissions"].(map[string]any)["deny"].([]any)) != 1 {
+		t.Fatalf("基本の値に無い鍵を壊した: %s", b)
+	}
+	// 全部許す
+	out.Reset()
+	alignSettings(&out, base, p, []string{"*"}, false, dir)
+	b, _ = os.ReadFile(p)
+	json.Unmarshal(b, &m)
+	if m["permissions"].(map[string]any)["defaultMode"] != "bypassPermissions" {
+		t.Fatalf("* で合わせない: %s", b)
+	}
+	if lb, _ := os.ReadFile(filepath.Join(dir, "設定そろえの記録.log")); !strings.Contains(string(lb), "permissions.defaultMode: \"default\" → \"bypassPermissions\"") {
+		t.Fatalf("記録に前と後が無い: %s", lb)
 	}
 }

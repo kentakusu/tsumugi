@@ -96,7 +96,8 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 // 紡のセッションに必ず渡す決まり。
 const yuiRule = "知識（結・yui）は必ず `tsumugi yui '<問い合わせ>'` で、結のデーモンを通して読み書きする。" +
 	"yui コマンドで .yui ファイルを直接開かない。デーモンにつながらないときは、人に知らせて待つ。" +
-	"Claude Code のローカルメモリには書かない。"
+	"Claude Code のローカルメモリには書かない。" +
+	"人に聞きたいことがあるときは、質問の道具（AskUserQuestion）は使わず、文で聞いてターンを終える（無人で止まらないため）。"
 
 func startArgs(aff string, s sessionSpec) []string {
 	set := map[string]any{"env": map[string]string{"TSUMUGI_AFFILIATION": aff, "TSUMUGI_SESSION": s.Name}}
@@ -110,6 +111,9 @@ func startArgs(aff string, s sessionSpec) []string {
 		// 指示（最後の引数）の直前に置くと、指示がチャネルの名前として食われる（実測）。
 		args = append(args, "--channels", channelPlugin)
 	}
+	// ★無人のセッションでは、質問の画面（AskUserQuestion）が人の答えを待って止まる（askUserQuestionTimeout は
+	// 背景のセッションに効かない・2026-11-21 実測）。道具ごと使えなくし、聞くときは文で聞いてターンを終える。
+	args = append(args, "--disallowedTools", "AskUserQuestion")
 	args = append(args, "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule)
 	if s.Permission != "" {
 		args = append(args, "--permission-mode", s.Permission)

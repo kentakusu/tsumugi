@@ -29,6 +29,9 @@ type globalConfig struct {
 	// チャネル（動いているセッションへ止めずに渡す）を使うか。使うなら、紡が起こすセッションに --channels を付ける。
 	// マシンの管理設定に allowedChannelPlugins が要る（channel.go）。
 	Channel bool `json:"チャネル,omitempty"`
+	// Claude Code のユーザー設定のうち、基本の値（settings/claude-base.json）に合わせてよい鍵。"*" で全部。
+	// 無ければ、ずれを出すだけ（settingsalign.go）。
+	AlignSettings []string `json:"設定を合わせる,omitempty"`
 	// 更新（Claude Code と環境を新しくする）。update.go
 	Update *updateSpec `json:"更新,omitempty"`
 	Yui    struct {

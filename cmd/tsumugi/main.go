@@ -50,6 +50,8 @@ const usage = `使い方: tsumugi <コマンド>
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
 
+  設定そろえ, align-settings [--dry]
+                      Claude Code のユーザー設定を基本の値（settings/claude-base.json）と比べ、紡.json で許した鍵だけ合わせる
   チャネル準備, channel-setup
                       動いているセッションへ止めずに渡すチャネルの準備（プラグインと管理設定を確かめる）
   version, --version   版（git の commit）を出す
@@ -90,6 +92,8 @@ func main() {
 		err = cmdYui(os.Args[2:])
 	case "channel":
 		err = cmdChannel()
+	case "設定そろえ", "align-settings":
+		err = cmdSettingsAlign(os.Args[2:])
 	case "チャネル準備", "channel-setup":
 		err = cmdChannelSetup()
 	case "run":
