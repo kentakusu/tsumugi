@@ -654,3 +654,10 @@ func TestChannelDoesNotStealLiveSocket(t *testing.T) {
 		t.Fatal("どちらにも届かない")
 	}
 }
+
+func TestCleanEnv(t *testing.T) {
+	got := cleanEnv([]string{"A=1", "TSUMUGI_SESSION=x", "TSUMUGI_AFFILIATION=y", "TSUMUGI_HOME=/h"})
+	if strings.Join(got, ",") != "A=1,TSUMUGI_HOME=/h" {
+		t.Fatalf("名乗りの環境変数が残った: %v", got)
+	}
+}

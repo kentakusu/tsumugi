@@ -5,7 +5,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 )
 
 // claude agents --json の 1 行。
@@ -25,6 +27,10 @@ type agent struct {
 var runClaudeIn = func(dir string, args ...string) ([]byte, error) {
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = dir
+	// ★呼んだシェルの TSUMUGI_AFFILIATION / TSUMUGI_SESSION を渡さない。紡のセッションの中から
+	// tsumugi を打つと、起こしたセッションが呼んだ側の名前を名乗り、チャネルのソケットや結の名乗りを
+	// 取り違えた（2026-11-20 Reatex の実測）。起こすセッションの名前は --settings の env で渡す。
+	cmd.Env = cleanEnv(os.Environ())
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -36,6 +42,17 @@ var runClaudeIn = func(dir string, args ...string) ([]byte, error) {
 }
 
 func runClaude(args ...string) ([]byte, error) { return runClaudeIn("", args...) }
+
+func cleanEnv(env []string) []string {
+	out := env[:0:0]
+	for _, e := range env {
+		if strings.HasPrefix(e, "TSUMUGI_AFFILIATION=") || strings.HasPrefix(e, "TSUMUGI_SESSION=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
 
 // 動いているものだけ。
 func listAgents() ([]agent, error) {
