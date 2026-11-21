@@ -173,12 +173,6 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		states[af.ID] = st
 	}
 	learnIDs(states)
-	// 更新（時刻が来ていれば）。claude が新しくなっても、動いているセッションは下で入れ直す。
-	if root, err := homeDir(); err == nil {
-		if g, err := loadGlobal(root); err == nil {
-			maybeUpdate(w, root, g, time.Now(), dry)
-		}
-	}
 	all, err := listAllAgents()
 	if err != nil {
 		return err

@@ -198,6 +198,13 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 			var keep []queued
 			for _, q := range list {
 				t, err := time.Parse(time.RFC3339, q.Received)
+				if (err == nil && now.Sub(t) > queueGiveUp || !ok) && len(af.Watch.Notify) == 0 {
+					// ★知らせ先が無いのに諦めると、誰も読まない 諦めた/ に移るだけで実質 失われる
+					// （2026-11-21 yui-windows の実測）。知らせ先が無いうちは諦めずに置いておく。
+					fmt.Fprintf(w, "★%s/%s への届けが %s から渡せていません（知らせ先が無いので、諦めずに置いておきます）\n", af.ID, name, q.Received)
+					keep = append(keep, q)
+					continue
+				}
 				if err == nil && now.Sub(t) > queueGiveUp || !ok {
 					why := "渡せないまま 24 時間たった"
 					if !ok {

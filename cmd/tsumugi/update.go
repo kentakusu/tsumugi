@@ -12,6 +12,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,7 +68,9 @@ func maybeUpdate(w io.Writer, root string, g globalConfig, now time.Time, dry bo
 	if u == nil || u.Cron == "" {
 		return
 	}
-	due := scheduleSpec{Cron: u.Cron, Prompt: "-"}.lastDue(now)
+	// 機械が寝ていて時刻を逃しても、起きたあと 24 時間以内なら追いかけて 1 回やる
+	// （定時の 2 時間より長く取る。更新は遅れても害が無く、抜けるほうが困る）。
+	due := lastDueWithin(u.Cron, now, updateCatchUp)
 	if due.IsZero() {
 		return
 	}
@@ -76,15 +79,39 @@ func maybeUpdate(w io.Writer, root string, g globalConfig, now time.Time, dry bo
 	if h.LastUpdate >= at {
 		return
 	}
+	if !dry {
+		unlock, err := lockNamed(root, updateLockFile, 0)
+		if err != nil {
+			return // ほかの run が更新中
+		}
+		defer unlock()
+		h.LastUpdate = at // 始める前に控える（長い更新の間に、次の run がもう一度始めないように）
+		if err := saveHomeState(root, h); err != nil {
+			fmt.Fprintln(w, "更新の控えを書けません:", err)
+		}
+	}
 	runUpdate(w, root, *u, dry)
-	if dry {
-		return
-	}
-	h.LastUpdate = at
-	if err := saveHomeState(root, h); err != nil {
-		fmt.Fprintln(w, "更新の控えを書けません:", err)
-	}
 }
+
+const updateCatchUp = 24 * time.Hour
+
+// cron の発火のうち、now から d 以内でいちばん新しいもの。
+func lastDueWithin(expr string, now time.Time, d time.Duration) time.Time {
+	c, err := parseCron(expr)
+	if err != nil {
+		return time.Time{}
+	}
+	now = now.Truncate(time.Minute)
+	for t := now; now.Sub(t) <= d; t = t.Add(-time.Minute) {
+		if c.match(t) {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// 1 つのコマンドの上限。winget が何時間も返らないことがある（2026-11-21 Windows で約 14 時間）。
+var stepTimeout = 2 * time.Hour
 
 // 1 回 更新する。結果は w と <手元>/更新の記録.log に残し、知らせ先へ要点を知らせる。
 func runUpdate(w io.Writer, root string, u updateSpec, dry bool) {
@@ -156,7 +183,9 @@ func step(w io.Writer, dry bool, name string, args ...string) bool {
 	if dry {
 		return true
 	}
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), stepTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	b, err := cmd.CombinedOutput()
 	tail := string(b)
@@ -164,6 +193,10 @@ func step(w io.Writer, dry bool, name string, args ...string) bool {
 		tail = "…" + tail[len(tail)-2000:]
 	}
 	fmt.Fprint(w, tail)
+	if ctx.Err() == context.DeadlineExceeded {
+		fmt.Fprintf(w, "→ %s たっても終わらないので打ち切った\n", stepTimeout)
+		return false
+	}
 	if err != nil {
 		fmt.Fprintln(w, "→ 失敗:", err)
 		return false

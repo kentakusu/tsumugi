@@ -145,9 +145,19 @@ func cmdRun(dry bool) error {
 		if err != nil {
 			return err
 		}
-		defer unlock()
+		err = reconcile(os.Stdout, affs, dry)
+		unlock()
+		if err != nil {
+			return err
+		}
+	} else if err := reconcile(os.Stdout, affs, dry); err != nil {
+		return err
 	}
-	return reconcile(os.Stdout, affs, dry)
+	// 更新は run の錠の外で、別の錠を取って回す（長い更新の間も、ほかの run が起こす・届けるを続けられる）。
+	if g, err := loadGlobal(root); err == nil {
+		maybeUpdate(os.Stdout, root, g, time.Now(), dry)
+	}
+	return nil
 }
 
 func cmdList() error {

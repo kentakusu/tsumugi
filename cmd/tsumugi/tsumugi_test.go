@@ -430,8 +430,20 @@ func TestDeliverQueue(t *testing.T) {
 	if _, err := deliverQueue(&out, []affiliation{af}, states, nil, now, false); err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(out.String(), "諦めずに置いておきます") {
+		t.Fatalf("知らせ先が無いのに黙って諦めた: %s", out.String())
+	}
+	// 知らせ先があれば、諦めて知らせる
+	af.Watch.Notify = []string{"true"}
+	if _, err := enqueue(af, "s", "古い2", now.Add(-26*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if _, err := deliverQueue(&out, []affiliation{af}, states, nil, now, false); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(out.String(), "諦めました") {
-		t.Fatalf("諦めていない: %s", out.String())
+		t.Fatalf("知らせ先があるのに諦めていない: %s", out.String())
 	}
 }
 
@@ -555,5 +567,15 @@ func TestRecordSkipsUnmanaged(t *testing.T) {
 func TestIdleBlockedIsNotStuck(t *testing.T) {
 	if agentState(agent{State: "blocked", Status: "idle"}) == "blocked" {
 		t.Fatal("ターンが終わって人を待っているだけのものを、止まりと数えた")
+	}
+}
+
+func TestLastDueWithin(t *testing.T) {
+	now := time.Date(2026, 11, 21, 9, 0, 0, 0, time.Local)
+	if d := lastDueWithin("30 5 * * *", now, 24*time.Hour); !d.Equal(time.Date(2026, 11, 21, 5, 30, 0, 0, time.Local)) {
+		t.Fatalf("寝ていて逃した 05:30 を追いかけない: %v", d)
+	}
+	if d := lastDueWithin("30 5 * * *", now, time.Hour); !d.IsZero() {
+		t.Fatalf("幅の外を拾った: %v", d)
 	}
 }

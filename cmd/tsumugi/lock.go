@@ -18,17 +18,42 @@ const lockFile = ".紡の錠" // 結の .錠 と取り違えないよう名前�
 const lockStale = 15 * time.Minute
 
 func lockHome(root string, wait time.Duration) (func(), error) {
+	return lockNamed(root, lockFile, wait)
+}
+
+// 更新（長いと何時間もかかる。winget など）は run とは別の錠で回す。
+const updateLockFile = ".紡の更新の錠"
+
+// 錠を持っている間は、1 分ごとに錠の時刻を新しくする（生きている印）。
+// ★古さは「最後の印からの時間」で見る。印を打たずに作った時刻だけで見ていたので、
+// 14 時間かかった更新の間、15 分ごとに錠が奪われて run が並走していた（2026-11-21 yui-windows の実測）。
+const lockBeat = time.Minute
+
+func lockNamed(root, name string, wait time.Duration) (func(), error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	p := filepath.Join(root, lockFile)
+	p := filepath.Join(root, name)
 	end := time.Now().Add(wait)
 	for {
 		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
 			fmt.Fprintf(f, "%d %s\n", os.Getpid(), time.Now().Format(time.RFC3339))
 			f.Close()
-			return func() { os.Remove(p) }, nil
+			stop := make(chan struct{})
+			go func() {
+				t := time.NewTicker(lockBeat)
+				defer t.Stop()
+				for {
+					select {
+					case <-stop:
+						return
+					case now := <-t.C:
+						os.Chtimes(p, now, now)
+					}
+				}
+			}()
+			return func() { close(stop); os.Remove(p) }, nil
 		}
 		if !errors.Is(err, fs.ErrExist) {
 			return nil, err
