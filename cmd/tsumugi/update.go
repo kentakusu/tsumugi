@@ -159,12 +159,14 @@ func runUpdate(w io.Writer, root string, u updateSpec, dry bool) {
 		}
 	}
 	if u.Settings {
+		fmt.Fprintf(out, "[%s] 設定項目\n", time.Now().Format("15:04:05"))
 		if diff, err := checkSettings(out, root, u.SchemaURL, dry); err != nil {
 			notes = append(notes, "★設定項目を確かめられない: "+err.Error())
 		} else if diff != "" {
 			notes = append(notes, diff)
 		}
 	}
+	fmt.Fprintf(out, "[%s] 更新おわり\n", time.Now().Format("15:04:05"))
 	if !dry {
 		appendLog(root, log.Bytes())
 	}
@@ -179,10 +181,13 @@ func runUpdate(w io.Writer, root string, u updateSpec, dry bool) {
 
 // コマンドを 1 つ流す。dry なら出すだけ。
 func step(w io.Writer, dry bool, name string, args ...string) bool {
-	fmt.Fprintf(w, "$ %s %s\n", name, strings.Join(args, " "))
+	start := time.Now()
+	fmt.Fprintf(w, "[%s] $ %s %s\n", start.Format("15:04:05"), name, strings.Join(args, " "))
 	if dry {
 		return true
 	}
+	// どの段が長かったかを、記録だけで分かるようにする（2026-11-21 yui-windows の提案）
+	defer func() { fmt.Fprintf(w, "[%s] （%s かかった）\n", time.Now().Format("15:04:05"), time.Since(start).Round(time.Second)) }()
 	ctx, cancel := context.WithTimeout(context.Background(), stepTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
