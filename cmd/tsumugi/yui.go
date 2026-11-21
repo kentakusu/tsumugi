@@ -17,6 +17,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -37,6 +38,11 @@ type globalConfig struct {
 	Update *updateSpec `json:"更新,omitempty"`
 	Yui    struct {
 		Addr string `json:"アドレス"` // 例 127.0.0.1:7952
+		// 別の筐体から LAN の口（--lan）につなぐときの合言葉の出どころ。★値そのものは書かない。
+		// どちらか片方: ファイル（本人だけが読める権限で置く）か、値を標準出力に出すコマンド
+		// （macOS の Keychain なら ["security","find-generic-password","-s","tsumugi-yui","-w"]）。
+		SecretFile string   `json:"合言葉ファイル,omitempty"`
+		SecretCmd  []string `json:"合言葉コマンド,omitempty"`
 	} `json:"結"`
 }
 
@@ -93,6 +99,35 @@ func yuiAddr() (string, error) {
 	return g.Yui.Addr, nil
 }
 
+// 合言葉（LAN の口のとき）。127.0.0.1 の口なら要らない（空を返す）。
+// 環境変数 TSUMUGI_YUI_SECRET_FILE があれば、それが先。
+func yuiSecret() (string, error) {
+	root, err := homeDir()
+	if err != nil {
+		return "", err
+	}
+	g, _ := loadGlobal(root)
+	file := g.Yui.SecretFile
+	if f := os.Getenv("TSUMUGI_YUI_SECRET_FILE"); f != "" {
+		file = f
+	}
+	switch {
+	case file != "":
+		b, err := os.ReadFile(expandHome(file))
+		if err != nil {
+			return "", fmt.Errorf("合言葉のファイルを読めません: %w", err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	case len(g.Yui.SecretCmd) > 0:
+		out, err := exec.Command(expandHome(g.Yui.SecretCmd[0]), g.Yui.SecretCmd[1:]...).Output()
+		if err != nil {
+			return "", fmt.Errorf("合言葉のコマンドが失敗しました: %w", err)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	return "", nil
+}
+
 // 名乗り。紡が起こしたセッションは「<所属>/<名前>@<マシン>」、それ以外は「人:<ユーザー>@<マシン>」。
 func yuiName() string {
 	if n := os.Getenv("TSUMUGI_SESSION"); n != "" {
@@ -121,7 +156,7 @@ type yuiLine struct {
 
 // 1 本の接続で、名乗ってから問い合わせを順に投げる。返りの行はそのまま w へ。
 // 戻り値は、どれか 1 つでも rc≠0 なら false。
-func yuiAsk(conn io.ReadWriter, w io.Writer, name string, queries []string) (bool, error) {
+func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []string) (bool, error) {
 	r := bufio.NewReader(conn)
 	ok := true
 	send := func(q string, echo bool) error {
@@ -151,6 +186,15 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, name string, queries []string) (boo
 				}
 				return nil
 			}
+		}
+	}
+	if secret != "" {
+		// LAN の口は、最初の 1 行で合言葉を送る（合うまで読むことも通らない）。★値は画面にも記録にも出さない
+		if err := send("合言葉 "+secret, false); err != nil {
+			return false, fmt.Errorf("合言葉の返りがありません（違うと、その場で切られます）: %w", err)
+		}
+		if !ok {
+			return false, fmt.Errorf("合言葉が通りません")
 		}
 	}
 	if err := send("名乗る "+yuiQuote(name), false); err != nil {
@@ -189,7 +233,11 @@ func cmdYui(args []string) error {
 			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください", addr, err)
 	}
 	defer conn.Close()
-	ok, err := yuiAsk(conn, os.Stdout, yuiName(), queries)
+	secret, err := yuiSecret()
+	if err != nil {
+		return err
+	}
+	ok, err := yuiAsk(conn, os.Stdout, secret, yuiName(), queries)
 	if err != nil {
 		return err
 	}

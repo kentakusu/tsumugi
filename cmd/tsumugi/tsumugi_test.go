@@ -261,7 +261,7 @@ func TestYuiAsk(t *testing.T) {
 		d.Close()
 	}()
 	var out bytes.Buffer
-	ok, err := yuiAsk(c, &out, `a/b"c@m`, []string{"一覧 (決定:)", "壊れた"})
+	ok, err := yuiAsk(c, &out, "", `a/b"c@m`, []string{"一覧 (決定:)", "壊れた"})
 	if err != nil || ok {
 		t.Fatalf("2 件目の打ち切り（cut）で ok=false のはず: %v %v", ok, err)
 	}
@@ -762,4 +762,66 @@ func TestChannelSelfHeals(t *testing.T) {
 		t.Fatalf("作り直していない: %v %v", ok, err)
 	}
 	<-got
+}
+
+func TestYuiAskSendsSecretFirst(t *testing.T) {
+	for _, pass := range []bool{true, false} {
+		c, d := net.Pipe()
+		got := make(chan []string, 1)
+		go func() {
+			r := bufio.NewReader(d)
+			var qs []string
+			for i := 0; i < 3; i++ {
+				var n int
+				if _, err := fmt.Fscanf(r, "%d\n", &n); err != nil {
+					break
+				}
+				b := make([]byte, n)
+				io.ReadFull(r, b)
+				qs = append(qs, string(b))
+				if i == 0 && !pass {
+					fmt.Fprint(d, `{"kind":"end","rc":2}`+"\n")
+					break
+				}
+				fmt.Fprint(d, `{"kind":"end","rc":0}`+"\n")
+			}
+			got <- qs
+			d.Close()
+		}()
+		var out bytes.Buffer
+		ok, err := yuiAsk(c, &out, "ひみつひみつひみつひみつ", "n@m", []string{"一覧 (決定:)"})
+		qs := <-got
+		if qs[0] != "合言葉 ひみつひみつひみつひみつ" {
+			t.Fatalf("最初に合言葉を送っていない: %q", qs)
+		}
+		if pass && (!ok || err != nil || len(qs) != 3 || qs[1] != `名乗る "n@m"`) {
+			t.Fatalf("合言葉が通ったのに続かない: %v %v %q", ok, err, qs)
+		}
+		if !pass && (ok || err == nil || len(qs) != 1) {
+			t.Fatalf("合言葉が通らないのに続けた: %v %v %q", ok, err, qs)
+		}
+		if strings.Contains(out.String(), "ひみつ") {
+			t.Fatal("合言葉を出力に出した")
+		}
+	}
+}
+
+func TestYuiSecretSources(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TSUMUGI_HOME", dir)
+	t.Setenv("TSUMUGI_YUI_SECRET_FILE", "")
+	sf := filepath.Join(dir, "s")
+	os.WriteFile(sf, []byte("abcdefghijklmnopq\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x","合言葉ファイル":"`+sf+`"}}`), 0o600)
+	if s, err := yuiSecret(); err != nil || s != "abcdefghijklmnopq" {
+		t.Fatalf("ファイルから読めない: %q %v", s, err)
+	}
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x","合言葉コマンド":["echo","zyxwvutsrqponmlkj"]}}`), 0o600)
+	if s, err := yuiSecret(); err != nil || s != "zyxwvutsrqponmlkj" {
+		t.Fatalf("コマンドから読めない: %q %v", s, err)
+	}
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x"}}`), 0o600)
+	if s, _ := yuiSecret(); s != "" {
+		t.Fatal("出どころが無いのに合言葉を作った")
+	}
 }
