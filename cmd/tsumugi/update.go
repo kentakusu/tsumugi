@@ -226,8 +226,14 @@ func osUpdateCommands() [][]string {
 		}
 	case "windows":
 		if _, err := exec.LookPath("winget"); err == nil {
-			return [][]string{{"winget", "upgrade", "--all", "--silent", "--disable-interactivity",
-				"--accept-source-agreements", "--accept-package-agreements"}}
+			// ★--scope user: 管理者権限（UAC）が要るものは無人では入らず、確認の画面を待って
+			// 何時間も返らない（2026-11-21 この段で約 14 時間）。ユーザーの範囲だけを上げ、
+			// 残りは一覧（winget upgrade）を記録に出して、人が手で入れる。
+			return [][]string{
+				{"winget", "upgrade", "--all", "--scope", "user", "--silent", "--disable-interactivity",
+					"--accept-source-agreements", "--accept-package-agreements"},
+				{"winget", "upgrade", "--accept-source-agreements", "--disable-interactivity"},
+			}
 		}
 	}
 	return nil

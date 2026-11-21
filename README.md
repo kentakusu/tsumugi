@@ -112,7 +112,7 @@ run のたびに、紡のセッションの様子（`claude agents --json` の s
 | `いつ` | cron 5 項目。来たら run が 1 回 更新する（書かなければ `tsumugi 更新` を手で）。機械が寝ていて逃しても、24 時間以内に起きれば追いかける。更新は run とは別の錠で回すので、長い更新の間もほかの run は起こす・届けるを続ける。1 つのコマンドは 2 時間で打ち切る |
 | `紡` | 紡そのものを新しくする。main に push するたびに Actions が各 OS 向けの実行ファイルを [Release](https://github.com/kentakusu/tsumugi/releases) に置くので、それを取り、`SHA256SUMS` で確かめてから置き換える。Release のほうが新しいときだけ（手元の変更が入ったビルドは置き換えない）。Windows は動いている exe を `.old` に退けてから置く |
 | `claude` | `claude update`（純正の更新を呼ぶだけ） |
-| `OS` | Ubuntu/Debian: `sudo -n apt-get update` と `upgrade`（パスワードを聞かれる環境では止まらず失敗として知らせる）／macOS: `brew update`・`brew upgrade`／Windows: `winget upgrade --all --silent`。**再起動はしない**（要るときは知らせる） |
+| `OS` | Ubuntu/Debian: `sudo -n apt-get update` と `upgrade`（パスワードを聞かれる環境では止まらず失敗として知らせる）／macOS: `brew update`・`brew upgrade`／Windows: `winget upgrade --all --scope user --silent`（管理者権限が要るものは無人では入らないので、残りを一覧にして記録に出す。人が手で入れる）。**再起動はしない**（要るときは知らせる） |
 | `ほか` | ほかに流すコマンドの並び |
 | `入れ直し` | run のたびに、claude の実行ファイルより前に起きた・空いている紡のセッションを、同じ会話のまま起こし直す（作業中・入力待ちには触らない） |
 | `設定項目` | 設定項目の一覧（SchemaStore の JSON Schema）を取り、増減と「一覧に無い鍵」を出す |
