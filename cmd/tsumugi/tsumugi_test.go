@@ -699,3 +699,30 @@ func TestAlignSettings(t *testing.T) {
 		t.Fatalf("記録に前と後が無い: %s", lb)
 	}
 }
+
+func TestAlignKeepsSymlinkAndOrder(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	os.MkdirAll(repo, 0o700)
+	target := filepath.Join(repo, "settings.json")
+	os.WriteFile(target, []byte("{\n  \"zeta\": 1,\n  \"hooks\": {\"Stop\": []},\n  \"alpha\": true\n}\n"), 0o664)
+	link := filepath.Join(dir, "settings.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlink が作れない土台")
+	}
+	var out bytes.Buffer
+	if n, err := alignSettings(&out, map[string]any{"verbose": true}, link, []string{"*"}, false, dir); n != 1 || err != nil {
+		t.Fatalf("合わせない: %d %v", n, err)
+	}
+	if fi, _ := os.Lstat(link); fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink が普通のファイルに置き換わった")
+	}
+	b, _ := os.ReadFile(target)
+	s := string(b)
+	if !(strings.Index(s, "zeta") < strings.Index(s, "hooks") && strings.Index(s, "hooks") < strings.Index(s, "alpha") && strings.Index(s, "alpha") < strings.Index(s, "verbose")) {
+		t.Fatalf("鍵の順が変わった: %s", s)
+	}
+	if m, _ := filepath.Glob(filepath.Join(repo, "*.bak-*")); len(m) != 0 {
+		t.Fatal("控えをリポジトリの中に置いた")
+	}
+}

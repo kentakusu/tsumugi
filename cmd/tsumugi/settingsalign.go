@@ -61,20 +61,6 @@ func leaves(m map[string]any, prefix string, out map[string]any) {
 	}
 }
 
-func setLeaf(m map[string]any, path string, v any) {
-	parts := strings.Split(path, ".")
-	cur := m
-	for _, p := range parts[:len(parts)-1] {
-		next, ok := cur[p].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			cur[p] = next
-		}
-		cur = next
-	}
-	cur[parts[len(parts)-1]] = v
-}
-
 func jsonStr(v any) string {
 	if v == nil {
 		return "（無い）"
@@ -85,15 +71,22 @@ func jsonStr(v any) string {
 
 // ずれを出し、許されたものは合わせる。合わせた数を返す。
 func alignSettings(w io.Writer, base map[string]any, path string, allowed []string, dry bool, root string) (int, error) {
-	local := map[string]any{}
+	// ★symlink なら、リンクの先に書く（rename で置き換えると symlink が普通のファイルになり、
+	// リンク先の git 管理のファイルから黙って切り離される。2026-11-21 Reatex で踏んだ）。
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		path = r
+	}
+	local := newOobj()
 	if b, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &local); err != nil {
+		o, err := parseOrdered(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")))
+		if err != nil {
 			return 0, fmt.Errorf("%s を読めません（直さずに止めます）: %w", path, err)
 		}
+		local = o
 	}
 	bl, ll := map[string]any{}, map[string]any{}
 	leaves(base, "", bl)
-	leaves(local, "", ll)
+	leaves(local.plain(), "", ll)
 	all := len(allowed) == 1 && allowed[0] == "*"
 	ok := map[string]bool{}
 	for _, a := range allowed {
@@ -118,7 +111,7 @@ func alignSettings(w io.Writer, base map[string]any, path string, allowed []stri
 		}
 		fmt.Fprintf(w, "合わせる: %s  %s → %s\n", k, jsonStr(ll[k]), jsonStr(bl[k]))
 		fmt.Fprintf(&log, "%s %s %s: %s → %s\n", time.Now().Format(time.RFC3339), thisMachine(), k, jsonStr(ll[k]), jsonStr(bl[k]))
-		setLeaf(local, k, bl[k])
+		local.setLeaf(strings.Split(k, "."), bl[k])
 		changed++
 	}
 	if differ == 0 {
@@ -127,15 +120,24 @@ func alignSettings(w io.Writer, base map[string]any, path string, allowed []stri
 	if changed == 0 {
 		return 0, nil
 	}
-	b, err := json.MarshalIndent(local, "", "  ")
+	raw, err := json.Marshal(local)
 	if err != nil {
 		return 0, err
 	}
+	var pretty bytes.Buffer
+	json.Indent(&pretty, raw, "", "  ")
+	// 控えは紡の置き場に置く（リポジトリの中に置くと、自動同期で commit される）。
 	if old, err := os.ReadFile(path); err == nil {
-		os.WriteFile(path+".bak-"+time.Now().Format("20060102150405"), old, 0o600)
+		d := filepath.Join(root, "設定の控え")
+		os.MkdirAll(d, 0o700)
+		os.WriteFile(filepath.Join(d, "settings.json.bak-"+time.Now().Format("20060102150405")), old, 0o600)
+	}
+	mode := os.FileMode(0o600)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(tmp, append(pretty.Bytes(), '\n'), mode); err != nil {
 		return 0, err
 	}
 	if err := os.Rename(tmp, path); err != nil {
