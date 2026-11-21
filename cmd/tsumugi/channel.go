@@ -98,6 +98,10 @@ func cmdChannel() error {
 
 // ソケットで待ち、来た文をセッションへ流す。1 接続 1 件。流したら "ok" を返す。
 func channelListen(aff, name string, send func(any)) {
+	channelListenEvery(aff, name, send, 30*time.Second)
+}
+
+func channelListenEvery(aff, name string, send func(any), check time.Duration) {
 	root, err := homeDir()
 	if err != nil {
 		return
@@ -119,9 +123,39 @@ func channelListen(aff, name string, send func(any)) {
 		return
 	}
 	os.Chmod(p, 0o600)
+	var lnMu sync.Mutex
+	cur := func() net.Listener { lnMu.Lock(); defer lnMu.Unlock(); return ln }
+	// ★自分のソケットが自分に届くかを、ときどき確かめる。ほかのセッションに奪われて、そのセッションが
+	// 落ちると、ファイルだけ残って誰にも届かなくなる（2026-11-22 Windows 実測）。届かなければ作り直す。
+	go func() {
+		for range time.Tick(check) {
+			if c, err := net.DialTimeout("unix", p, 2*time.Second); err == nil {
+				c.Close()
+				continue
+			}
+			os.Remove(p)
+			if nl, err := net.Listen("unix", p); err == nil {
+				os.Chmod(p, 0o600)
+				lnMu.Lock()
+				old := ln
+				ln = nl
+				lnMu.Unlock()
+				// ★Go の Unix の口は、閉じるとパスのファイルを消す。同じパスに作り直した新しい口まで消えるので止める
+				if ul, ok := old.(*net.UnixListener); ok {
+					ul.SetUnlinkOnClose(false)
+				}
+				old.Close()
+				fmt.Fprintln(os.Stderr, "tsumugi channel: ソケットが届かなくなっていたので作り直した:", p)
+			}
+		}
+	}()
 	for {
-		c, err := ln.Accept()
+		c, err := cur().Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				time.Sleep(100 * time.Millisecond) // 作り直した新しい口で待ち直す
+				continue
+			}
 			return
 		}
 		go func(c net.Conn) {

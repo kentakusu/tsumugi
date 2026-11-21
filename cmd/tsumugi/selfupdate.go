@@ -189,8 +189,10 @@ func replaceSelf(bin []byte) error {
 		return err
 	}
 	if runtime.GOOS == "windows" {
-		old := p + ".old"
-		os.Remove(old)
+		// ★.old の名前は毎回変える。チャネルの tsumugi channel がセッションの間ずっと前の版を掴むので、
+		// 名前が固定だと、2 回目の自己更新が掴まれた .old に上書きできず失敗した（2026-11-22 Windows 実測）。
+		cleanupOld()
+		old := fmt.Sprintf("%s.old.%d.%d", p, time.Now().UnixMilli(), os.Getpid())
 		if err := os.Rename(p, old); err != nil {
 			os.Remove(tmp)
 			return err
@@ -204,8 +206,12 @@ func replaceSelf(bin []byte) error {
 	return os.Rename(tmp, p)
 }
 
+// 掴まれていない古い .old を片付ける（掴まれているものは消えないので、そのまま次の回に回す）。
 func cleanupOld() {
 	if p, err := selfPath(); err == nil {
-		os.Remove(p + ".old")
+		olds, _ := filepath.Glob(p + ".old*")
+		for _, o := range olds {
+			os.Remove(o)
+		}
 	}
 }

@@ -739,3 +739,27 @@ func TestLoadGlobalToleratesUnknownKey(t *testing.T) {
 		t.Fatal("壊れた JSON を通した")
 	}
 }
+
+func TestChannelSelfHeals(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "tsch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	t.Setenv("TSUMUGI_HOME", dir)
+	got := make(chan map[string]any, 2)
+	go channelListenEvery("a", "s", func(v any) { got <- v.(map[string]any) }, 100*time.Millisecond)
+	p := channelSock(dir, "a", "s")
+	for i := 0; i < 50; i++ {
+		if _, err := os.Stat(p); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	os.Remove(p) // ほかのセッションに奪われて落ちたのと同じ（ファイルが自分を指さない）
+	time.Sleep(500 * time.Millisecond)
+	if ok, err := channelDeliver(dir, "a", "s", "x"); !ok || err != nil {
+		t.Fatalf("作り直していない: %v %v", ok, err)
+	}
+	<-got
+}
