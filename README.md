@@ -47,7 +47,7 @@ Claude Code を無人で走らせるための**仕組み**です。指示書・�
 | `tsumugi 設定そろえ`（`align-settings`）`[--dry]` | 在る。Claude Code のユーザー設定（`~/.claude/settings.json`）を、基本の値 [`settings/claude-base.json`](settings/claude-base.json) と比べる。書き換えるのは `紡.json` の `"設定を合わせる"` に載せた鍵だけ（`["*"]` で全部）。前の値・後の値を `<手元>/設定そろえの記録.log` に残す。毎日の更新（`設定項目`）でも見る |
 | `tsumugi チャネル準備`（`channel-setup`） | 在る。動いているセッションへ**止めずに**渡すチャネル（Claude Code の channels・研究プレビュー）の準備。プラグインを入れ、マシンの管理設定に許可があるかを見る（無ければ打つものを出す） |
 | `tsumugi yui <問い合わせ>…` | 在る。結のデーモンに名乗って問い合わせる。紡のセッションは結をこれで読み書きする |
-| `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）・Windows（タスク スケジューラ・管理者不要・TSUMUGI_HOME もタスクに渡る）で確かめた。macOS（launchd）は書いただけ |
+| `tsumugi install` / `uninstall` | 在る。OS の定期実行に `tsumugi run`（5 分おき）を登録する / 外す。Linux（systemd の user timer）・Windows（タスク スケジューラ・管理者不要・TSUMUGI_HOME もタスクに渡る）・macOS（launchd・2026-11-22 Mac mini で実測）で確かめた |
 
 純正機能との対応（純正でできることは純正に寄せる）は [docs/純正との対応.md](docs/純正との対応.md)。
 設計は [docs/設計.md](docs/設計.md)、日々の使い方（前面と背景の行き来など）は [docs/使い方.md](docs/使い方.md)。
@@ -61,7 +61,7 @@ go build -o tsumugi ./cmd/tsumugi      # Windows なら -o tsumugi.exe
 go test ./...
 ```
 
-Linux（Ubuntu）と Windows で動かして確かめています。macOS 向けは**ビルドが通ることまで**しか確かめていません。
+Linux（Ubuntu）・Windows・macOS（Apple Silicon）で動かして確かめています。
 
 ## 所属の設定
 

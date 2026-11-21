@@ -53,7 +53,7 @@ func currentInstallEnv() (installEnv, error) {
 	if err != nil {
 		return installEnv{}, err
 	}
-	return installEnv{Exe: exe, Path: os.Getenv("PATH"), Home: os.Getenv("TSUMUGI_HOME"),
+	return installEnv{Exe: exe, Path: dedupPath(os.Getenv("PATH")), Home: os.Getenv("TSUMUGI_HOME"),
 		LogFile: filepath.Join(root, "run.log")}, nil
 }
 
@@ -232,4 +232,18 @@ func uninstallSteps(dry bool, fs []file, before, after [][]string) error {
 		fmt.Println("登録を外しました。動いているセッションはそのままです。")
 	}
 	return nil
+}
+
+// PATH の同じ要素を 1 つにする（順は最初に出たところ。mise などで二重に入ることがある・macOS 実測）。
+func dedupPath(p string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range filepath.SplitList(p) {
+		if e == "" || seen[e] {
+			continue
+		}
+		seen[e] = true
+		out = append(out, e)
+	}
+	return strings.Join(out, string(os.PathListSeparator))
 }

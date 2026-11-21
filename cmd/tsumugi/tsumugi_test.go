@@ -825,3 +825,10 @@ func TestYuiSecretSources(t *testing.T) {
 		t.Fatal("出どころが無いのに合言葉を作った")
 	}
 }
+
+func TestDedupPath(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	if got := dedupPath(strings.Join([]string{"/a", "/b", "/a", "", "/c", "/b"}, sep)); got != strings.Join([]string{"/a", "/b", "/c"}, sep) {
+		t.Fatalf("二重を消さない: %q", got)
+	}
+}
