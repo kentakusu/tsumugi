@@ -210,6 +210,13 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []stri
 
 // tsumugi yui <問い合わせ>…（無ければ標準入力の全体を 1 件として）
 func cmdYui(args []string) error {
+	// ★結の言葉は「-」で始まらない。旗のようなものは、問い合わせとして結に送らずに断る
+	// （yui コマンドの --read を付ける癖のあるセッションが、結の失敗として踏んでいた・Mac mini の報告）。
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			return fmt.Errorf("知らない旗です: %s（tsumugi yui は旗を取りません。--read なども要りません。問い合わせだけを渡してください）", a)
+		}
+	}
 	addr, err := yuiAddr()
 	if err != nil {
 		return err

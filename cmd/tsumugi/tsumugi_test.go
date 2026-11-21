@@ -832,3 +832,9 @@ func TestDedupPath(t *testing.T) {
 		t.Fatalf("二重を消さない: %q", got)
 	}
 }
+
+func TestYuiRejectsFlags(t *testing.T) {
+	if err := cmdYui([]string{"--read", "一覧 (決定:)"}); err == nil || !strings.Contains(err.Error(), "知らない旗") {
+		t.Fatalf("旗を断らない: %v", err)
+	}
+}
