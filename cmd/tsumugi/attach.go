@@ -117,9 +117,30 @@ func cmdAttach(arg string) error {
 			}
 		}
 	}
-	cmd := exec.Command("claude", "attach", a.ID)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
+	// ★定時・届けは「止めて、指示を付けて起こす」で渡すので、開いている間に数秒セッションが落ちる
+	// （Claude Code に、動いている背景セッションへ外から指示を入れる口が無いため）。そのとき attach は
+	// 「has exited」で終わる。同じ会話が起き直してきたら、つなぎ直す（2026-11-21 Reatex の報告）。
+	for tries := 0; ; tries++ {
+		cmd := exec.Command("claude", "attach", a.ID)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		runErr := cmd.Run()
+		if tries >= 5 {
+			return runErr
+		}
+		all, err := listAllAgents()
+		if err != nil {
+			return runErr
+		}
+		if cur, ok := byID(all, a.ID); ok && cur.Pid > 0 {
+			return runErr // セッションは動いている＝人が自分で抜けた
+		}
+		fmt.Fprintf(os.Stderr, "\n%s がいま起こし直されています（紡が指示を渡しているところ）。つなぎ直します…\n", name)
+		b, ok := waitRunningID(name, a.SessionID, 30*time.Second)
+		if !ok {
+			return runErr
+		}
+		a = b
+	}
 }
 
 // 所属を 1 本のセッションだけに絞る（ほかのセッションを止めないよう、控えもその 1 本ぶんだけ扱う）。
