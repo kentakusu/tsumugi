@@ -838,3 +838,23 @@ func TestYuiRejectsFlags(t *testing.T) {
 		t.Fatalf("旗を断らない: %v", err)
 	}
 }
+
+func TestYuiTargetTwoLayers(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TSUMUGI_HOME", dir)
+	t.Setenv("TSUMUGI_YUI", "")
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"127.0.0.1:1"}}`), 0o600)
+	writeAff(t, dir, "yume", `{"表示名":"y","セッション":[{"名前":"s","作業フォルダ":"/tmp"}],"結":{"アドレス":"10.0.0.1:2","合言葉ファイル":"~/.s"}}`)
+	writeAff(t, dir, "plain", `{"表示名":"p","セッション":[{"名前":"q","作業フォルダ":"/tmp"}]}`)
+	t.Setenv("TSUMUGI_AFFILIATION", "yume")
+	if c, w, _ := yuiTarget(false); c.Addr != "10.0.0.1:2" || !strings.Contains(w, "所属") {
+		t.Fatalf("所属の結を引かない: %v %s", c, w)
+	}
+	if c, _, _ := yuiTarget(true); c.Addr != "127.0.0.1:1" {
+		t.Fatalf("--共有 で共有の結を引かない: %v", c)
+	}
+	t.Setenv("TSUMUGI_AFFILIATION", "plain")
+	if c, w, _ := yuiTarget(false); c.Addr != "127.0.0.1:1" || w != "共有の結" {
+		t.Fatalf("所属に結が無いのに共有に戻らない: %v %s", c, w)
+	}
+}

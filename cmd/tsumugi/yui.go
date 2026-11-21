@@ -36,14 +36,18 @@ type globalConfig struct {
 	AlignSettings []string `json:"設定を合わせる,omitempty"`
 	// 更新（Claude Code と環境を新しくする）。update.go
 	Update *updateSpec `json:"更新,omitempty"`
-	Yui    struct {
-		Addr string `json:"アドレス"` // 例 127.0.0.1:7952
-		// 別の筐体から LAN の口（--lan）につなぐときの合言葉の出どころ。★値そのものは書かない。
-		// どちらか片方: ファイル（本人だけが読める権限で置く）か、値を標準出力に出すコマンド
-		// （macOS の Keychain なら ["security","find-generic-password","-s","tsumugi-yui","-w"]）。
-		SecretFile string   `json:"合言葉ファイル,omitempty"`
-		SecretCmd  []string `json:"合言葉コマンド,omitempty"`
-	} `json:"結"`
+	// 共有の結（全所属から読める。使う人の決めたこと・好み・一般の決まり）。
+	Yui yuiConf `json:"結"`
+}
+
+// 結のデーモンへのつなぎ方。紡.json の「結」は共有の結、所属.json の「結」はその所属だけの結。
+type yuiConf struct {
+	Addr string `json:"アドレス"` // 例 127.0.0.1:7952
+	// 別の筐体から LAN の口（--lan）につなぐときの合言葉の出どころ。★値そのものは書かない。
+	// どちらか片方: ファイル（本人だけが読める権限で置く）か、値を標準出力に出すコマンド
+	// （macOS の Keychain なら ["security","find-generic-password","-s","tsumugi-yui","-w"]）。
+	SecretFile string   `json:"合言葉ファイル,omitempty"`
+	SecretCmd  []string `json:"合言葉コマンド,omitempty"`
 }
 
 const globalFile = "紡.json"
@@ -81,33 +85,38 @@ func loadGlobal(root string) (globalConfig, error) {
 var warnOnce sync.Once
 
 // 結のデーモンのアドレス。環境変数 TSUMUGI_YUI が先。
-func yuiAddr() (string, error) {
-	if a := os.Getenv("TSUMUGI_YUI"); a != "" {
-		return a, nil
-	}
+// どの結につなぐか。shared なら共有の結（紡.json）。そうでなければ、このセッションの所属に
+// 「結」があればそれ、無ければ共有の結。戻り値の where は人に見せる名前。
+func yuiTarget(shared bool) (yuiConf, string, error) {
 	root, err := homeDir()
 	if err != nil {
-		return "", err
+		return yuiConf{}, "", err
+	}
+	if !shared {
+		if aff := os.Getenv("TSUMUGI_AFFILIATION"); aff != "" {
+			if a, err := loadAffiliation(filepath.Join(root, aff, configFile)); err == nil && a.Yui != nil && a.Yui.Addr != "" {
+				return *a.Yui, "所属「" + aff + "」の結", nil
+			}
+		}
 	}
 	g, err := loadGlobal(root)
 	if err != nil {
-		return "", err
+		return yuiConf{}, "", err
 	}
-	if g.Yui.Addr == "" {
-		return "", fmt.Errorf("結のデーモンのアドレスが決まっていません（%s の「結」「アドレス」か、環境変数 TSUMUGI_YUI）", filepath.Join(root, globalFile))
+	c := g.Yui
+	if a := os.Getenv("TSUMUGI_YUI"); a != "" {
+		c.Addr = a
 	}
-	return g.Yui.Addr, nil
+	if c.Addr == "" {
+		return c, "", fmt.Errorf("結のデーモンのアドレスが決まっていません（%s の「結」「アドレス」か、環境変数 TSUMUGI_YUI）", filepath.Join(root, globalFile))
+	}
+	return c, "共有の結", nil
 }
 
 // 合言葉（LAN の口のとき）。127.0.0.1 の口なら要らない（空を返す）。
 // 環境変数 TSUMUGI_YUI_SECRET_FILE があれば、それが先。
-func yuiSecret() (string, error) {
-	root, err := homeDir()
-	if err != nil {
-		return "", err
-	}
-	g, _ := loadGlobal(root)
-	file := g.Yui.SecretFile
+func yuiSecretOf(c yuiConf) (string, error) {
+	file := c.SecretFile
 	if f := os.Getenv("TSUMUGI_YUI_SECRET_FILE"); f != "" {
 		file = f
 	}
@@ -118,14 +127,25 @@ func yuiSecret() (string, error) {
 			return "", fmt.Errorf("合言葉のファイルを読めません: %w", err)
 		}
 		return strings.TrimSpace(string(b)), nil
-	case len(g.Yui.SecretCmd) > 0:
-		out, err := exec.Command(expandHome(g.Yui.SecretCmd[0]), g.Yui.SecretCmd[1:]...).Output()
+	case len(c.SecretCmd) > 0:
+		out, err := exec.Command(expandHome(c.SecretCmd[0]), c.SecretCmd[1:]...).Output()
 		if err != nil {
 			return "", fmt.Errorf("合言葉のコマンドが失敗しました: %w", err)
 		}
 		return strings.TrimSpace(string(out)), nil
 	}
 	return "", nil
+}
+
+// 共有の結の合言葉（テストと互換のため）。
+func yuiSecret() (string, error) {
+	c, _, err := yuiTarget(true)
+	if err != nil {
+		root, _ := homeDir()
+		g, _ := loadGlobal(root)
+		c = g.Yui
+	}
+	return yuiSecretOf(c)
 }
 
 // 名乗り。紡が起こしたセッションは「<所属>/<名前>@<マシン>」、それ以外は「人:<ユーザー>@<マシン>」。
@@ -210,17 +230,23 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []stri
 
 // tsumugi yui <問い合わせ>…（無ければ標準入力の全体を 1 件として）
 func cmdYui(args []string) error {
-	// ★結の言葉は「-」で始まらない。旗のようなものは、問い合わせとして結に送らずに断る
+	// 旗は --共有（--shared）だけ。共有の結（全所属から読める）につなぐ。無ければ所属の結（無ければ共有）。
+	shared := false
+	if len(args) > 0 && (args[0] == "--共有" || args[0] == "--shared") {
+		shared, args = true, args[1:]
+	}
+	// ★結の言葉は「-」で始まらない。ほかの旗のようなものは、問い合わせとして結に送らずに断る
 	// （yui コマンドの --read を付ける癖のあるセッションが、結の失敗として踏んでいた・Mac mini の報告）。
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
-			return fmt.Errorf("知らない旗です: %s（tsumugi yui は旗を取りません。--read なども要りません。問い合わせだけを渡してください）", a)
+			return fmt.Errorf("知らない旗です: %s（tsumugi yui の旗は --共有 だけです。--read なども要りません）", a)
 		}
 	}
-	addr, err := yuiAddr()
+	conf, where, err := yuiTarget(shared)
 	if err != nil {
 		return err
 	}
+	addr := conf.Addr
 	queries := args
 	if len(queries) == 0 {
 		b, err := io.ReadAll(os.Stdin)
@@ -236,11 +262,11 @@ func cmdYui(args []string) error {
 	}
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("結のデーモン（%s）につながりません: %w\n"+
-			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください", addr, err)
+		return fmt.Errorf("%s（%s）につながりません: %w\n"+
+			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください", where, addr, err)
 	}
 	defer conn.Close()
-	secret, err := yuiSecret()
+	secret, err := yuiSecretOf(conf)
 	if err != nil {
 		return err
 	}

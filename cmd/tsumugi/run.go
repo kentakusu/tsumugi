@@ -97,6 +97,9 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 const yuiRule = "知識（結・yui）は必ず `tsumugi yui '<問い合わせ>'` で、結のデーモンを通して読み書きする。" +
 	"yui コマンドで .yui ファイルを直接開かない。デーモンにつながらないときは、人に知らせて待つ。" +
 	"Claude Code のローカルメモリには書かない。" +
+	"結は 2 つある: 仕事の中身（案件・現在地・その所属の決定）は `tsumugi yui`（所属の結）へ、" +
+	"使う人の決めたこと・好み・所属をまたぐ一般の決まりは `tsumugi yui --共有 '<問い合わせ>'`（共有の結）へ。" +
+	"所属の中身を共有の結に書かない。" +
 	"人に聞きたいことがあるときは、質問の道具（AskUserQuestion）は使わず、文で聞いてターンを終える（無人で止まらないため）。"
 
 func startArgs(aff string, s sessionSpec) []string {

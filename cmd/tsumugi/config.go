@@ -91,6 +91,8 @@ type affiliation struct {
 	Label    string        `json:"表示名"`
 	Sessions []sessionSpec `json:"セッション"`
 	Watch    watchSpec     `json:"見張り,omitempty"`
+	// この所属だけの結（仕事の中身）。無ければ共有の結（紡.json）を使う。yui.go
+	Yui *yuiConf `json:"結,omitempty"`
 }
 
 const configFile = "所属.json"
