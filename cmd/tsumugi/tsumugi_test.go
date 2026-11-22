@@ -544,6 +544,7 @@ func TestTrackByID(t *testing.T) {
 }
 
 func TestAdoptCopy(t *testing.T) {
+	stubTranscripts(t, "COPY") // 写しに会話の中身がある（中身が無いときは TestAdoptCopySkipsEmpty）
 	old := runClaudeIn
 	defer func() { runClaudeIn = old; resumeWait = 15 * time.Second }()
 	resumeWait = 0
@@ -567,7 +568,7 @@ func TestRecordSkipsUnmanaged(t *testing.T) {
 	states := map[string]affState{"a": {Sessions: map[string]sessionState{}}}
 	all := []agent{{Name: "s", SessionID: "HAND", Pid: 1, StartedAt: 1}}
 	startedNow = map[string]bool{}
-	if err := record([]affiliation{af}, states, all); err != nil {
+	if err := record(io.Discard, []affiliation{af}, states, all); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := states["a"].Sessions["s"]; ok {
@@ -575,7 +576,7 @@ func TestRecordSkipsUnmanaged(t *testing.T) {
 	}
 	startedNow["s"] = true
 	defer func() { startedNow = map[string]bool{} }()
-	record([]affiliation{af}, states, all)
+	record(io.Discard, []affiliation{af}, states, all)
 	if states["a"].Sessions["s"].SessionID != "HAND" {
 		t.Fatal("この run で起こしたものを控えていない")
 	}

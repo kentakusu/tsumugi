@@ -261,7 +261,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		if dry {
 			return nil
 		}
-		return record(affs, states, all) // 前回 控え損ねたものを拾う
+		return record(w, affs, states, all) // 前回 控え損ねたものを拾う
 	}
 	var firstErr error
 	for _, act := range acts {
@@ -318,7 +318,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		return err
 	}
 	watch(w, affs, states, all, time.Now(), dry)
-	if err := record(affs, states, all); err != nil {
+	if err := record(w, affs, states, all); err != nil {
 		return err
 	}
 	return firstErr
@@ -386,7 +386,7 @@ var startedNow = map[string]bool{}
 // 所属.json を置いたときに同じ名前のセッションが手で動いていると、それを控えてしまい、
 // 以後は「起こし直す」（フラグ無し）になって、最初の指示・結の決まり・メモリを切る設定・env が
 // 一度も渡らなかった（2026-11-17 yui-windows の実測）。
-func record(affs []affiliation, states map[string]affState, all []agent) error {
+func record(w io.Writer, affs []affiliation, states map[string]affState, all []agent) error {
 	for _, af := range affs {
 		st := states[af.ID]
 		for _, s := range af.Sessions {
@@ -396,6 +396,14 @@ func record(affs []affiliation, states map[string]affState, all []agent) error {
 			if a, ok := newestRunning(all, s.Name); ok {
 				prev := st.Sessions[s.Name]
 				if prev.SessionID != a.SessionID {
+					// ★控えの会話から乗り換えるのは、乗り換え先に会話の中身があるときだけ（jobrecord.go の hasTranscript）。
+					// 中身の無い会話を控えると、次からその空の会話を起こし直し、本物の会話を見失う。
+					if prev.SessionID != "" && !hasTranscript(a.SessionID) {
+						fmt.Fprintf(w, "★%s/%s: 同じ名前で、会話の中身が無いセッション（%s）が動いています。紡は控えの会話（%s）から乗り換えません。"+
+							"空のセッションなら claude stop %s してください（次の run が控えの会話を起こし直します）\n",
+							af.ID, s.Name, short(a.SessionID), short(prev.SessionID), a.ID)
+						continue
+					}
 					prev.SessionID = a.SessionID
 				}
 				st.Sessions[s.Name] = prev

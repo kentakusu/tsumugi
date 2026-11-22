@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 起こし直す: Claude Code が紡の名前を覚えていれば今までどおりフラグ無し。
@@ -88,6 +90,84 @@ func TestDeliverPromptRefit(t *testing.T) {
 		if !strings.HasSuffix(args, "【定時】朝の巡回") || strings.Contains(args, "最初の指示") {
 			t.Fatalf("渡すのは定時の指示だけのはず: %s", args)
 		}
+	}
+}
+
+// 会話の中身がある会話 ID を差し替える（ほかは「中身が無い」）。
+func stubTranscripts(t *testing.T, ids ...string) {
+	t.Helper()
+	old := hasTranscript
+	t.Cleanup(func() { hasTranscript = old })
+	have := map[string]bool{}
+	for _, id := range ids {
+		have[id] = true
+	}
+	hasTranscript = func(id string) bool { return have[id] }
+}
+
+// record は、控えの会話から中身の無い会話へは乗り換えない（★で知らせる）。初めて控えるもの・中身のある写しは控える。
+func TestRecordSkipsEmptyConversation(t *testing.T) {
+	stubTranscripts(t, "REAL", "COPY")
+	dir := t.TempDir()
+	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "acc"}, {Name: "oss"}, {Name: "new"}}}
+	os.MkdirAll(filepath.Join(dir, "a"), 0o700)
+	states := map[string]affState{"a": {Sessions: map[string]sessionState{
+		"acc": {SessionID: "REAL"}, "oss": {SessionID: "OLD"},
+	}}}
+	all := []agent{
+		{Name: "acc", SessionID: "EMPTY", ID: "c6e57e3e", Pid: 1, StartedAt: 1}, // 一覧から開いて起きた空の会話
+		{Name: "oss", SessionID: "COPY", ID: "copy", Pid: 2, StartedAt: 1},      // 中身のある写し（対照）
+		{Name: "new", SessionID: "FRESH", ID: "fresh", Pid: 3, StartedAt: 1},    // この run で初めて起こしたもの（対照）
+	}
+	learnIDs(states)
+	startedNow = map[string]bool{"new": true}
+	defer func() { startedNow = map[string]bool{}; knownIDs = map[string]string{} }()
+	var out bytes.Buffer
+	if err := record(&out, []affiliation{af}, states, all); err != nil {
+		t.Fatal(err)
+	}
+	if got := states["a"].Sessions["acc"].SessionID; got != "REAL" {
+		t.Fatalf("中身の無い会話に乗り換えた: %s", got)
+	}
+	if !strings.Contains(out.String(), "a/acc") || !strings.Contains(out.String(), "claude stop c6e57e3e") || strings.Count(out.String(), "★") != 1 {
+		t.Fatalf("知らせ方が違う: %q", out.String())
+	}
+	if got := states["a"].Sessions["oss"].SessionID; got != "COPY" {
+		t.Fatalf("中身のある写しに乗り換えていない: %s", got)
+	}
+	if got := states["a"].Sessions["new"].SessionID; got != "FRESH" {
+		t.Fatalf("初めて起こしたものを控えていない: %s", got)
+	}
+}
+
+// adoptCopy は中身の無い会話を写しとして引き取らない。
+func TestAdoptCopySkipsEmpty(t *testing.T) {
+	stubTranscripts(t)
+	old := runClaudeIn
+	defer func() { runClaudeIn = old; resumeWait = 15 * time.Second; knownIDs = map[string]string{} }()
+	resumeWait = 0
+	t0 := time.Now()
+	runClaudeIn = func(d string, args ...string) ([]byte, error) {
+		return []byte(fmt.Sprintf(`[{"name":"useai-accounting","sessionId":"EMPTY","pid":7,"cwd":"/w","startedAt":%d}]`, t0.Add(time.Second).UnixMilli())), nil
+	}
+	if id := adoptCopy(delivery{Name: "s", Dir: "/w", SessionID: "OLD"}, t0); id != "" {
+		t.Fatalf("中身の無い会話を引き取った: %q", id)
+	}
+}
+
+// 本物の探し方: projects の下のどの道にあっても見つける（worktree に入った会話）。中身の無い記録は数えない。
+func TestHasTranscriptFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	wt := filepath.Join(dir, "projects", "-home-x-oss-tsumugi--claude-worktrees-on-demand")
+	os.MkdirAll(wt, 0o700)
+	os.WriteFile(filepath.Join(wt, "6e850902.jsonl"), []byte(`{"type":"queue-operation"}`+"\n"+`{"type":"user","message":{"content":"hi"}}`+"\n"), 0o600)
+	os.WriteFile(filepath.Join(wt, "aaaa.jsonl"), []byte(`{"type":"queue-operation"}`+"\n"), 0o600)
+	if !hasTranscript("6e850902") {
+		t.Fatal("worktree の道にある会話を見つけない")
+	}
+	if hasTranscript("aaaa") || hasTranscript("none") || hasTranscript("") {
+		t.Fatal("中身の無い・無い会話を「中身がある」とした")
 	}
 }
 

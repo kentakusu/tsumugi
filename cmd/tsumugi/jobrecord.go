@@ -12,6 +12,8 @@ package main
 //   （2026-11-22 Windows・2.1.330 で実測: nameSource: user・respawnFlags に -n が入った）。
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,6 +85,45 @@ func warnLostSettings(w io.Writer, machine string, affs []affiliation, states ma
 			}
 		}
 	}
+}
+
+// 会話の記録（<Claude の設定の置き場>/projects/<道>/<会話 ID>.jsonl）に中身（人かモデルの発言）があるか。
+// ★道は作業フォルダから決まるが、worktree に入ると記録の置き場も移る（2026-11-22 UseAI・Windows で実測）ので、
+//
+//	projects の下を全部探す。
+//
+// ★Claude Code は、会話を読み込まずに「指示を待つ空の会話」を起こすことがある（指示の無いフラグ付きの --resume、
+//
+//	一覧から開いた止まったセッション）。そういう会話には記録ファイルが無い。紡が控えの会話 ID を乗り換えるのは、
+//	乗り換え先に中身があるときだけにする（2026-11-22 UseAI: 空の会話を useai-accounting として控え直していた）。
+//
+// テストで差し替える。
+var hasTranscript = func(sessionID string) bool {
+	if sessionID == "" {
+		return false
+	}
+	home, err := claudeHome()
+	if err != nil {
+		return false
+	}
+	paths, _ := filepath.Glob(filepath.Join(home, "projects", "*", sessionID+".jsonl"))
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 64*1024), 64*1024*1024)
+		for sc.Scan() {
+			line := sc.Bytes()
+			if bytes.Contains(line, []byte(`"type":"user"`)) || bytes.Contains(line, []byte(`"type":"assistant"`)) {
+				f.Close()
+				return true
+			}
+		}
+		f.Close()
+	}
+	return false
 }
 
 // その会話を、フラグ無しの --resume で起こしても紡の設定が戻るか

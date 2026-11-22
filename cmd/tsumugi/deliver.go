@@ -211,7 +211,9 @@ func adoptCopy(d delivery, t0 time.Time) string {
 					cand = a
 				}
 			}
-			if cand.SessionID != "" {
+			// ★中身の無い会話は引き取らない（hasTranscript）。写しの記録が書かれるまで待つ時間の内で待ち、
+			// 出なければ引き取らずに次の run の record に任せる（record も中身を確かめてから乗り換える）。
+			if cand.SessionID != "" && hasTranscript(cand.SessionID) {
 				knownIDs[d.Name] = cand.SessionID
 				return cand.SessionID
 			}
