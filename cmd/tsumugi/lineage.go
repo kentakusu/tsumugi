@@ -428,6 +428,12 @@ func agentLabel(a agent) string {
 	if a.Pid > 0 && a.Status != "" {
 		return a.Status
 	}
+	// ★プロセスが無いのに state が blocked・working のままの記録がある（2026-11-23 Windows の再起動:
+	// 人の返事待ちで blocked にしていた yui-windows が、再起動のあと pid の無い blocked として残った）。
+	// そのまま「blocked」と出すと、動いて人を待っているように読める。止まっていると出す（run は pid で見て起こし直す）。
+	if a.Pid <= 0 && (a.State == "blocked" || a.State == "working") {
+		return "止まっている（記録は " + a.State + "）"
+	}
 	if a.State != "" {
 		return a.State
 	}
