@@ -214,6 +214,14 @@ func adoptRunning(w io.Writer, machine string, affs []affiliation, states map[st
 				}
 				continue
 			}
+			// ★付け直しは一度止めるので、人と話している最中には打たない。最後のやり取り（会話の記録が最後に書かれた時刻）から
+			// refitQuiet たったものだけにする（2026-11-22 yui-windows の頼み: 鈴木さんと作業中に止まると手が止まる）。
+			// status が idle でも、返事の合間の idle かもしれない。
+			if q, ok := quietFor(a.SessionID, time.Now()); !ok || q < refitQuiet {
+				fmt.Fprintf(w, "%s/%s: %s に紡の設定が付いていないが、最後のやり取りから %d 分なので、%d 分たってから付け直す\n",
+					af.ID, sp.Name, short(a.SessionID), int(q.Minutes()), int(refitQuiet.Minutes()))
+				continue
+			}
 			if adopting {
 				fmt.Fprintf(w, "%s/%s: 紡の外で動いている %s を、同じ会話のまま紡の設定で配下に入れる", af.ID, sp.Name, short(a.SessionID))
 			} else {
@@ -251,6 +259,29 @@ func jobHasTsumugiEnv(sessionID, aff, name string) bool {
 		}
 	}
 	return false
+}
+
+// 動いているものを付け直す（一度止める）のは、最後のやり取りからこの時間がたってから。
+var refitQuiet = 10 * time.Minute
+
+// 会話の最後のやり取りからの時間（会話の記録ファイルが最後に書かれた時刻から測る）。記録が見つからなければ ok=false。
+// テストで差し替える。
+var quietFor = func(sessionID string, now time.Time) (time.Duration, bool) {
+	home, err := claudeHome()
+	if err != nil || sessionID == "" {
+		return 0, false
+	}
+	paths, _ := filepath.Glob(filepath.Join(home, "projects", "*", sessionID+".jsonl"))
+	var last time.Time
+	for _, p := range paths {
+		if fi, err := os.Stat(p); err == nil && fi.ModTime().After(last) {
+			last = fi.ModTime()
+		}
+	}
+	if last.IsZero() {
+		return 0, false
+	}
+	return now.Sub(last), true
 }
 
 // 起きてからこの時間は、会話の記録がまだ無くても「中身が無い」と決めない（record）。

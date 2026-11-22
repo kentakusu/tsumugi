@@ -72,7 +72,7 @@ func cleanupCompleted(w io.Writer, machine string, affs []affiliation, states ma
 				continue // 紡と関係の無いもの
 			}
 		}
-		fmt.Fprintf(w, "%s/%s: 前の会話 %s（%s）を claude の一覧から外す", aff, name, short(a.SessionID), agentState(a))
+		fmt.Fprintf(w, "%s/%s: 前の会話 %s（%s）を claude の一覧から外す", aff, name, short(a.SessionID), agentLabel(a))
 		if dry {
 			fmt.Fprintln(w, "（しない）")
 			continue
@@ -265,10 +265,7 @@ func printListFull(w io.Writer, machine string, affs []affiliation, states map[s
 		if o, ok := own[a.SessionID]; ok {
 			aff, label = o.aff, o.name+"（前の会話）"
 		}
-		state := agentState(a)
-		if a.Pid > 0 {
-			state = a.Status
-		}
+		state := agentLabel(a)
 		if a.Kind == "interactive" {
 			state += "・画面"
 		}
@@ -308,11 +305,7 @@ func printTree(w io.Writer, machine string, affs []affiliation, states map[strin
 			return "一覧に無い（会話の記録は残る）"
 		}
 		used[id] = true
-		st := agentState(a)
-		if a.Pid > 0 {
-			st = a.Status
-		}
-		s := st + "・Claude での名前 " + quoteName(a.Name)
+		s := agentLabel(a) + "・Claude での名前 " + quoteName(a.Name)
 		if a.StartedAt > 0 {
 			s += "・起きた " + time.UnixMilli(a.StartedAt).Format("01-02 15:04")
 		}
@@ -385,16 +378,27 @@ func printTree(w io.Writer, machine string, affs []affiliation, states map[strin
 			if j == len(as)-1 {
 				br2 = "└─"
 			}
-			st := agentState(a)
-			if a.Pid > 0 {
-				st = a.Status
-			}
+			st := agentLabel(a)
 			if a.Kind == "interactive" {
 				st += "・画面"
 			}
 			fmt.Fprintf(w, "%s%s %s  %s  %s\n", pad, br2, a.ID, quoteName(a.Name), st)
 		}
 	}
+}
+
+// 一覧に出す様子。動いていれば status（idle・busy 等）、止まっていれば Claude Code の state（stopped・done・failed 等）。
+func agentLabel(a agent) string {
+	if a.Pid > 0 && a.Status != "" {
+		return a.Status
+	}
+	if a.State != "" {
+		return a.State
+	}
+	if a.Status != "" {
+		return a.Status
+	}
+	return "止まっている"
 }
 
 func quoteName(n string) string {

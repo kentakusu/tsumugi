@@ -395,13 +395,23 @@ func TestAdoptRunning(t *testing.T) {
 		"s-busy":  {Name: "busy-auto", NameSource: "auto", State: "working"},
 		"s-hand":  {Name: "hand", NameSource: "user", State: "working", RespawnFlags: []string{"-n", "hand"}},
 		"s-hand2": tsumugiJob("x", "hand2"),
+		"s-talk":  {Name: "talk-auto", NameSource: "auto", State: "working"},
 	})
 	// 手で起こしたものは会話の中身がある。s-empty・s-fresh は中身の無い空の会話（再起動直後に Claude Code が起こしたもの）
-	stubTranscripts(t, "s-hand", "s-hand2")
-	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "busy"}, {Name: "hand"}, {Name: "hand2"}, {Name: "empty"}, {Name: "fresh"}}}}
+	stubTranscripts(t, "s-hand", "s-hand2", "s-talk")
+	// 最後のやり取りからの時間: s-talk だけ 2 分前（人と話している最中の idle）。ほかは 20 分前
+	oldQuiet := quietFor
+	t.Cleanup(func() { quietFor = oldQuiet })
+	quietFor = func(id string, now time.Time) (time.Duration, bool) {
+		if id == "s-talk" {
+			return 2 * time.Minute, true
+		}
+		return 20 * time.Minute, true
+	}
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "busy"}, {Name: "hand"}, {Name: "hand2"}, {Name: "empty"}, {Name: "fresh"}, {Name: "talk"}}}}
 	states := map[string]affState{"x": {Sessions: map[string]sessionState{
 		"ok": {SessionID: "s-ok"}, "auto": {SessionID: "s-auto"}, "busy": {SessionID: "s-busy"},
-		"empty": {SessionID: "s-empty-real"}, "fresh": {SessionID: "s-fresh-real"},
+		"empty": {SessionID: "s-empty-real"}, "fresh": {SessionID: "s-fresh-real"}, "talk": {SessionID: "s-talk"},
 	}}}
 	all := []agent{
 		{Name: "ok", SessionID: "s-ok", ID: "ok000000", Pid: 1, Status: "idle"},
@@ -411,6 +421,7 @@ func TestAdoptRunning(t *testing.T) {
 		{Name: "hand2", SessionID: "s-hand2", ID: "hand2000", Pid: 5, Status: "busy", StartedAt: 5},
 		{Name: "empty", SessionID: "s-empty", ID: "2f3fa587", Pid: 6, Status: "idle", StartedAt: 5},
 		{Name: "fresh", SessionID: "s-fresh", ID: "fresh000", Pid: 7, Status: "idle", StartedAt: time.Now().UnixMilli()},
+		{Name: "talk-auto", SessionID: "s-talk", ID: "talk0000", Pid: 8, Status: "idle"}, // 2 分前に話していた（付け直さない）
 	}
 	f := &fakeClaude{}
 	f.install(t)
@@ -453,6 +464,9 @@ func TestAdoptRunning(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "作業中なので次の回に") {
 		t.Fatalf("作業中のものを次の回に回していない: %s", out.String())
+	}
+	if !strings.Contains(out.String(), "x/talk: s-talk に紡の設定が付いていないが、最後のやり取りから 2 分なので、10 分たってから付け直す") {
+		t.Fatalf("話している最中のものを待つと知らせていない: %s", out.String())
 	}
 }
 
