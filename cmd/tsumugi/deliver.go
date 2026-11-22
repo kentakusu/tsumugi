@@ -135,6 +135,15 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 		fmt.Fprintln(w, " … した")
 		return true, ""
 	}
+	// ★設定を覚えている会話は、claude respawn で同じ ID・同じ設定のまま起こし（動いていれば起こし直し）、チャネルで渡す。
+	// --resume <ID> "指示" は、Claude Code が予備のプロセス（spare）を使うと新しい ID の写しになる
+	// （2026-11-22 UseAI・Reatex: daemon.log の「claimed-spare <新しい ID> (shell)」。claude respawn は
+	// 「claimed-spare <同じ ID> (fleet)」で同じ ID のまま起きた）。チャネルが使えない所だけ、今までの --resume で渡す。
+	if channelOn() {
+		if root, err := homeDir(); err == nil {
+			return respawnAndDeliver(w, root, d), ""
+		}
+	}
 	if d.Running != nil {
 		if _, err := runClaude("stop", d.Running.ID); err != nil {
 			fmt.Fprintln(w, " … 止められず失敗")
@@ -166,6 +175,37 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 	fmt.Fprintln(w, " … した")
 	return true, ""
 }
+
+// claude respawn で同じ会話 ID のまま起こし、チャネルが応えるのを待って指示を渡す。渡せたら true。
+// 渡せなかったら false（届け・定時は残り、次の回にまた渡す）。
+func respawnAndDeliver(w io.Writer, root string, d delivery) bool {
+	if _, err := runClaude("respawn", short(d.SessionID)); err != nil {
+		fmt.Fprintln(w, " … claude respawn が失敗:", err)
+		return false
+	}
+	resumed[d.Name] = true
+	if _, ok := waitRunningID(d.Name, d.SessionID, respawnWait); !ok {
+		fmt.Fprintln(w, " … claude respawn したが、まだ一覧に出ないので次の回に")
+		return false
+	}
+	var last error
+	for end := time.Now().Add(respawnWait); ; time.Sleep(time.Second) {
+		ok, err := channelDeliver(root, d.Affiliation, d.Name, d.Prompt)
+		if ok {
+			fmt.Fprintln(w, " … した（claude respawn で同じ会話のまま起こし、チャネルで渡した）")
+			return true
+		}
+		last = err
+		if !time.Now().Before(end) {
+			break
+		}
+	}
+	fmt.Fprintln(w, " … claude respawn で起こしたが、チャネルが応えないので次の回に:", last)
+	return false
+}
+
+// claude respawn のあと、一覧に出てチャネルが応えるまで待つ長さ。テストで縮める。
+var respawnWait = 45 * time.Second
 
 // 常駐しないセッションを、届け・定時のために初めて起こす。最初の指示と渡す指示の両方を付けて渡す。
 // 起きた会話の ID を返す（一覧にまだ出なければ ""。名前で run が拾う）。

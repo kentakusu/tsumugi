@@ -39,7 +39,11 @@ func TestPlanRefitWhenJobForgot(t *testing.T) {
 	if a := got["keep"]; a.Verb != "起こし直す" || a.Refit || strings.Join(a.Args, " ") != "respawn s-keep" {
 		t.Fatalf("覚えているなら claude respawn のはず（対照）: %+v", a)
 	}
-	for _, name := range []string{"auto", "gone", "failed", "noflags"} {
+	// failed でも名前とフラグが残っていれば claude respawn（--resume の道は予備のプロセスで写しになるため）
+	if a := got["failed"]; a.Verb != "起こし直す" || a.Refit || strings.Join(a.Args, " ") != "respawn s-failed" {
+		t.Fatalf("failed でも設定が残っていれば claude respawn のはず: %+v", a)
+	}
+	for _, name := range []string{"auto", "gone", "noflags"} {
 		a := got[name]
 		args := strings.Join(a.Args, " ")
 		if a.Verb != "起こし直す" || !a.Refit {
@@ -73,7 +77,7 @@ func TestDeliverPromptRefit(t *testing.T) {
 	for _, c := range []struct {
 		name, id string
 		refit    bool
-	}{{"keep", "s-keep", false}, {"auto", "s-auto", true}, {"failed", "s-failed", true}} {
+	}{{"keep", "s-keep", false}, {"auto", "s-auto", true}, {"failed", "s-failed", false}} {
 		f := &fakeClaude{}
 		f.install(t)
 		spec := sessionSpec{Name: c.name, Prompt: "最初の指示", Permission: "bypassPermissions"}
@@ -88,7 +92,7 @@ func TestDeliverPromptRefit(t *testing.T) {
 		}
 		args := strings.Join(bg[0], " ")
 		if !c.refit {
-			if args != "--bg --resume s-keep 【定時】朝の巡回" {
+			if args != "--bg --resume "+c.id+" 【定時】朝の巡回" {
 				t.Fatalf("覚えているならフラグ無しのはず（対照）: %s", args)
 			}
 			continue
@@ -275,6 +279,62 @@ func TestWaitAfterDaemonStart(t *testing.T) {
 		if !c.wait && (!ok || len(f.bg()) != 1) {
 			t.Fatalf("落ち着いたあとは渡すはず（対照）: %v %q %s", ok, f.bg(), out.String())
 		}
+	}
+}
+
+// チャネルが使えるとき、止まっている会話（設定は覚えている）への定時・届けは、claude respawn で同じ ID のまま起こし、
+// チャネルで渡す。--resume（予備のプロセスを使うと写しになる）は打たない。
+func TestDeliverRespawnsAndUsesChannel(t *testing.T) {
+	dir, err := os.MkdirTemp(sockTempBase(), "tsrs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+	t.Setenv("TSUMUGI_HOME", dir)
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"チャネル":true}`), 0o600)
+	old := respawnWait
+	respawnWait = 5 * time.Second
+	t.Cleanup(func() { respawnWait = old })
+	stubJobRecords(t, map[string]jobRecord{"S1": {Name: "s", NameSource: "user", State: "failed", RespawnFlags: []string{"--channels", "-n"}}})
+	var calls [][]string
+	running := false
+	oldRun := runClaudeIn
+	t.Cleanup(func() { runClaudeIn = oldRun })
+	got := make(chan map[string]any, 1)
+	runClaudeIn = func(d string, args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		switch args[0] {
+		case "respawn":
+			running = true
+			go channelListen("a", "s", func(v any) { got <- v.(map[string]any) }) // 起きたセッションのチャネル
+		case "agents":
+			if running {
+				return []byte(`[{"name":"s","sessionId":"S1","id":"S1","pid":9,"status":"idle"}]`), nil
+			}
+			return []byte("[]"), nil
+		}
+		return nil, nil
+	}
+	var out bytes.Buffer
+	ok, newID := deliverPrompt(&out, delivery{Affiliation: "a", Name: "s", SessionID: "S1", Prompt: "【定時】朝の巡回", spec: sessionSpec{Name: "s"}})
+	for _, c := range calls {
+		if c[0] == "--bg" {
+			t.Fatalf("--resume を打った（写しになりうる）: %q", calls)
+		}
+	}
+	if len(calls) == 0 || calls[0][0] != "respawn" || calls[0][1] != "S1" {
+		t.Fatalf("claude respawn で起こしていない: %q", calls)
+	}
+	if !ok || newID != "" {
+		t.Fatalf("渡していない・ID が変わった: %v %q %s", ok, newID, out.String())
+	}
+	select {
+	case m := <-got:
+		if !strings.Contains(fmt.Sprint(m["params"]), "【定時】朝の巡回") {
+			t.Fatalf("チャネルで渡したものが違う: %v", m)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("チャネルに届いていない")
 	}
 }
 

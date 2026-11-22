@@ -366,14 +366,16 @@ func retireOldID(w io.Writer, oldID string, all []agent) {
 	fmt.Fprintf(w, "（古い会話 %s は claude の一覧から外した・会話の記録は残る）\n", short(oldID))
 }
 
-// その会話を、フラグ無しの --resume で起こしても紡の設定が戻るか
-// （job の記録が在り、紡が -n で付けた名前を覚えている）。
-// ★名前が残っていても、記録が failed（supervisor が落ちている間にプロセスが消えた等）だと、Claude Code は
-// その記録の設定を使わずに写しを作り、名前を自動で付け、フラグ無しで起こす（2026-11-22 UseAI で実測:
-// useai-accounting の c7f68470 は name・nameSource: user・respawnFlags が残ったまま state: failed で、
-// フラグ無し＋定時の指示で渡すと写し 75e5d408 が auto の名前・respawnFlags 空で起きた）。
-// フラグが空の記録も、覚えている設定が無い。どちらも付け直す側に倒す。
+// その会話を claude respawn で起こせば紡の設定が戻るか
+// （job の記録が在り、紡が -n で付けた名前と、保存したフラグを覚えている）。
+// ★記録が failed（supervisor が落ちている間にプロセスが消えた。WSL を起こし直したあと）でも、名前とフラグが
+// 残っていれば claude respawn で戻す。failed の会話をフラグ無しの --resume で起こすと写し・自動の名前・フラグ無しに
+// なった（2026-11-22 UseAI: c7f68470 → 75e5d408）が、それは --resume の道（予備のプロセスを使うと新しい ID）の話で、
+// claude respawn は daemon の起こし直しの道（(fleet)）なので同じ ID・保存したフラグのまま戻る
+// （Reatex の b80362be が再起動後 (fleet) で同じ ID・フラグ付きで戻った。UseAI の be2ad79b を claude respawn して
+// 同じ ID のまま戻ることも実測。★failed の記録を claude respawn したことはまだ無い＝次の再起動試験で見る）。
+// フラグが空の記録は、覚えている設定が無いので付け直す。
 func jobKeepsSettings(sessionID, name string) bool {
 	j, ok := readJobRecord(sessionID)
-	return ok && j.Name == name && j.NameSource == "user" && j.State != "failed" && len(j.RespawnFlags) > 0
+	return ok && j.Name == name && j.NameSource == "user" && len(j.RespawnFlags) > 0
 }

@@ -850,6 +850,14 @@ const testHelperEnv = "TSUMUGI_TEST_HELPER"
 func TestMain(m *testing.M) {
 	// この機の本物の daemon.log を読まない（立ち上がった直後だと試験の結果が揺れる）。読み方は TestReadDaemonStartedAt
 	daemonStartedAt = func() (time.Time, bool) { return time.Time{}, false }
+	// この機の本物の手元（紡.json のチャネルなど）を読まない。手元を使う試験は自分で TSUMUGI_HOME を決める
+	tmpHome := ""
+	if os.Getenv(testHelperEnv) == "" {
+		if d, err := os.MkdirTemp("", "tsumugi-test-home"); err == nil {
+			os.Setenv("TSUMUGI_HOME", d)
+			tmpHome = d
+		}
+	}
 	switch os.Getenv(testHelperEnv) {
 	case "":
 	case "echo":
@@ -859,7 +867,11 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "知らない helper:", os.Getenv(testHelperEnv))
 		os.Exit(2)
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	if tmpHome != "" {
+		os.RemoveAll(tmpHome)
+	}
+	os.Exit(code)
 }
 
 func TestYuiSecretSources(t *testing.T) {
