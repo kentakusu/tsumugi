@@ -60,7 +60,7 @@ func readValue(dec *json.Decoder) (any, error) {
 			_, err := dec.Token()
 			return o, err
 		case '[':
-			var a []any
+			a := []any{} // ★nil にすると、空の配列 [] が null で書き戻される（設定を壊す）
 			for dec.More() {
 				v, err := readValue(dec)
 				if err != nil {
