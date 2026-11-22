@@ -277,6 +277,12 @@ func osUpdateCommands() [][]string {
 				{"winget", "upgrade", "--all", "--scope", "user", "--silent", "--disable-interactivity",
 					"--accept-source-agreements", "--accept-package-agreements"},
 				{"winget", "upgrade", "--accept-source-agreements", "--disable-interactivity"},
+				// ★毎日の更新から外しているもの（winget の pin）を毎回 記録に出す。出さないと「外した」ことを忘れ、
+				// 「なぜ上がらないのか」で迷う（上の一覧にも --all にも pin したものは出てこない）。
+				// 外すのは紡の設定でなく純正の pin（ブロックでない種類＝winget pin add --id X）。2026-11-22 実測:
+				// pin したものは一覧と --all から消えるが、--id で名指しした upgrade は止めないので、人が手で入れる道は残る。
+				// 何をなぜ外したかの正は結の (決定:…)。ピンが無くても終了コードは 0。
+				{"winget", "pin", "list", "--disable-interactivity"},
 			}
 		}
 	}
