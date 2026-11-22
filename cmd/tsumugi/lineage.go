@@ -483,30 +483,123 @@ func loadStates(affs []affiliation) map[string]affState {
 	return states
 }
 
-// tsumugi 新しく <名前>: 同じ名前のまま、新しい会話で最初の指示から始め直す。
-// 動いていれば止め（作業中なら断る）、いまの会話を claude の一覧から外して「前の会話」に残し、最初の指示で起こす。
-// ★自分自身（このコマンドを打ったセッション）は止められないので断る。
+// tsumugi 新しく <名前|番号> [--すぐ]: 同じ名前のまま、新しい会話で最初の指示から始め直す（2026-11-22 鈴木さん）。
+//  1. 動いていれば、チャネルで「申し送りを結の現在地に書いて」と頼み、書き終えて空くまで待つ（--すぐ で飛ばす）
+//  2. 止めて、いまの会話を claude の一覧から外し（スマホの Remote Control の一覧からも消える）、「前の会話」に残す
+//  3. 最初の指示の前に「前の会話（ID）から新しく起こし直した。申し送りは結の現在地」を付けて新しい会話を起こす
+//     （新しい会話は Remote Control に新しい名前でつながる。Remote Control の名前は Claude Code から変えられないため、
+//     名前が付け替わってしまったセッションを直す手でもある）
+//
+// ★自分自身（このコマンドを打ったセッション）は止められないので断る。作業中なら断る。
 func cmdRenew(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("使い方: tsumugi 新しく <名前>")
+	quick := false
+	var target string
+	for _, a := range args {
+		switch a {
+		case "--すぐ", "--now":
+			quick = true
+		default:
+			if target != "" {
+				return fmt.Errorf("使い方: tsumugi 新しく <名前|番号> [--すぐ]")
+			}
+			target = a
+		}
 	}
-	name := args[0]
-	if os.Getenv("TSUMUGI_SESSION") == name {
-		return fmt.Errorf("%s は、いまこのコマンドを打っているセッションです。自分は止められないので、シェル（紡の外）から打ってください", name)
+	if target == "" {
+		return fmt.Errorf("使い方: tsumugi 新しく <名前|番号> [--すぐ]")
 	}
 	root, err := homeDir()
 	if err != nil {
 		return err
+	}
+	affs, err := loadAffiliations(root)
+	if err != nil {
+		return err
+	}
+	name, err := resolveName(affs, target)
+	if err != nil {
+		return err
+	}
+	if os.Getenv("TSUMUGI_SESSION") == name {
+		return fmt.Errorf("%s は、いまこのコマンドを打っているセッションです。自分は止められないので、シェル（紡の外）から打ってください", name)
+	}
+	// 申し送りを待つあいだは錠を取らない（そのあいだも run が定時・届けを渡せるように）。起こし直す所で錠を取る
+	if !quick {
+		if err := askHandoff(os.Stdout, root, affs, name); err != nil {
+			return err
+		}
 	}
 	unlock, err := lockHome(root, 2*time.Minute)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	affs, err := loadAffiliations(root)
+	return renewSession(os.Stdout, affs, name)
+}
+
+// 新しくする前に、いまの会話に申し送りを結へ書いてもらう（チャネルで渡し、書き終えて空くまで待つ）。
+// 止まっている・チャネルが応えないものは飛ばす（そう知らせる）。待ちきれなければ誤りを返して、起こし直さない。
+func askHandoff(w io.Writer, root string, affs []affiliation, name string) error {
+	af, _, ok := findSpec(affs, name)
+	if !ok {
+		return fmt.Errorf("%q というセッションは、どの所属.json にもありません", name)
+	}
+	st, err := loadState(af)
 	if err != nil {
 		return err
 	}
+	cur := st.Sessions[name].SessionID
+	all, err := listAllAgents()
+	if err != nil {
+		return err
+	}
+	a, ok := agentByID(all, cur)
+	if !ok || a.Pid <= 0 {
+		fmt.Fprintf(w, "%s/%s: 止まっているので、申し送りは飛ばします（前の会話は記録に残ります）\n", af.ID, name)
+		return nil
+	}
+	if a.Status != "idle" {
+		return fmt.Errorf("%s は作業中です（%s）。空いているときに打つか、申し送りを飛ばすなら --すぐ を付けてください", name, a.Status)
+	}
+	t0 := time.Now()
+	if ok, err := channelDeliver(root, af.ID, name, handoffPrompt); !ok {
+		fmt.Fprintf(w, "%s/%s: チャネルが応えないので、申し送りは飛ばします（%v）\n", af.ID, name, err)
+		return nil
+	}
+	fmt.Fprintf(w, "%s/%s: 申し送りを結に書くよう頼みました。書き終えて空くまで待ちます（最大 %d 分）…\n", af.ID, name, int(handoffWait.Minutes()))
+	busy := false
+	for end := t0.Add(handoffWait); time.Now().Before(end); time.Sleep(handoffPoll) {
+		all, err := listAllAgents()
+		if err != nil {
+			continue
+		}
+		b, ok := agentByID(all, cur)
+		if !ok || b.Pid <= 0 {
+			return fmt.Errorf("%s が申し送りの途中で止まりました。tsumugi l で確かめてください", name)
+		}
+		if b.Status != "idle" {
+			busy = true
+			continue
+		}
+		// 受け取って働いたあと（busy を見た）か、記録が渡したあとに書かれていれば、書き終えたとみなす
+		if q, ok := quietFor(cur, time.Now()); busy || (ok && q < time.Since(t0)) {
+			fmt.Fprintf(w, "%s/%s: 申し送りが済みました\n", af.ID, name)
+			return nil
+		}
+	}
+	return fmt.Errorf("%s の申し送りが %d 分で終わりませんでした。起こし直していません（申し送りを飛ばすなら --すぐ）", name, int(handoffWait.Minutes()))
+}
+
+const handoffPrompt = "【紡】これから tsumugi 新しく で、このセッションを新しい会話に起こし直します。" +
+	"新しい会話はこの会話を覚えていません。いまの会話の中にしか無いこと（作業の途中・次の一手・誰の判断待ちか・止めると危険な点・" +
+	"いま見ている時刻やファイル）を結の現在地に書いてください。書き終えたら、それ以上の作業はせずに待ってください。"
+
+// 申し送りを待つ長さと見る間隔。テストで縮める。
+var handoffWait = 10 * time.Minute
+var handoffPoll = 3 * time.Second
+
+// 止めて、いまの会話を claude の一覧から外して前の会話に残し、最初の指示（前に「新しく起こし直した」知らせ）で新しい会話を起こす。
+func renewSession(w io.Writer, affs []affiliation, name string) error {
 	af, spec, ok := findSpec(affs, name)
 	if !ok {
 		return fmt.Errorf("%q というセッションは、どの所属.json にもありません", name)
@@ -527,7 +620,7 @@ func cmdRenew(args []string) error {
 		return err
 	}
 	resumed, startedNow = map[string]bool{}, map[string]bool{}
-	w := os.Stdout
+	old := ss.SessionID
 	if a, ok := agentByID(all, ss.SessionID); ok {
 		if a.Pid > 0 {
 			if a.Status != "idle" {
@@ -546,11 +639,16 @@ func cmdRenew(args []string) error {
 		ss.Previous = append(ss.Previous, prevSession{ID: ss.SessionID, Until: time.Now().Format(time.RFC3339), Why: "tsumugi 新しく"})
 	}
 	ss.SessionID = ""
+	ss.Held, ss.HeldAt = false, ""
 	st.Sessions[name] = ss
 	if err := saveState(af, st); err != nil {
 		return err
 	}
 	spec.From = ""
+	if old != "" {
+		spec.Prompt = "【紡】tsumugi 新しく で、前の会話（" + old + "）から新しい会話に起こし直しました。" +
+			"前の会話の申し送りは結の現在地にあります。\n\n" + spec.Prompt
+	}
 	if spec.Trust {
 		if err := trustBeforeStart(w, action{Affiliation: af.ID, Name: name, Dir: spec.Dir}, false); err != nil {
 			return err
@@ -559,7 +657,7 @@ func cmdRenew(args []string) error {
 	if _, err := runClaudeIn(spec.Dir, startArgs(af, spec)...); err != nil {
 		return err
 	}
-	a, ok := waitRunning(name, 30*time.Second)
+	a, ok := waitRunning(name, renewWait)
 	if ok {
 		ss.SessionID = a.SessionID
 		st.Sessions[name] = ss
@@ -572,3 +670,5 @@ func cmdRenew(args []string) error {
 	fmt.Fprintf(w, "%s/%s: 新しい会話で起こしました（まだ一覧に出ないので、次の run が控えます）\n", af.ID, name)
 	return nil
 }
+
+var renewWait = 30 * time.Second
