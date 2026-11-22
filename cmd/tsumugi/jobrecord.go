@@ -174,6 +174,33 @@ func adoptRunning(w io.Writer, machine string, affs []affiliation, states map[st
 					continue
 				}
 				a, adopting = best, true
+				// ★中身の無い会話は配下に入れない。Claude Code が会話を読み込まずに起こした空のセッション
+				// （再起動の直後・一覧から開いた止まったセッション）は、同じ名前で動いていても「手で起こしたもの」ではない
+				// （2026-11-22 UseAI で実測: 再起動直後の 2f3fa587 が name 無し・jsonl 無し・needs "send a prompt to start"）。
+				// 起きてから transcriptGrace のあいだは様子を見る。過ぎても空なら、止めて一覧から外す（会話が無いので失うものが無い）。
+				// そうすると次の run が控えの会話を起こし直す。
+				if !hasTranscript(a.SessionID) {
+					if time.Since(time.UnixMilli(a.StartedAt)) < transcriptGrace {
+						continue
+					}
+					fmt.Fprintf(w, "%s/%s: 同じ名前で、会話の中身が無いセッション %s が動いているので、止めて一覧から外す", af.ID, sp.Name, short(a.SessionID))
+					if dry {
+						fmt.Fprintln(w, "（しない）")
+						continue
+					}
+					if _, err := runClaude("stop", a.ID); err != nil {
+						fmt.Fprintln(w, " … 止められず失敗:", err)
+						continue
+					}
+					waitStoppedID(a.SessionID, 20*time.Second)
+					if _, err := runClaude("rm", short(a.SessionID)); err != nil && !strings.Contains(err.Error(), "No session matching") {
+						fmt.Fprintln(w, " … 一覧から外せず:", err)
+						continue
+					}
+					fmt.Fprintln(w, " … した（控えの会話を起こし直す）")
+					any = true // 一覧を取り直させる（同じ回の plan が控えの会話を起こし直す）
+					continue
+				}
 			}
 			if jobKeepsSettings(a.SessionID, sp.Name) && jobHasTsumugiEnv(a.SessionID, af.ID, sp.Name) {
 				if adopting {

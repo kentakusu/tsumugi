@@ -336,9 +336,12 @@ func TestAdoptRunning(t *testing.T) {
 		"s-hand":  {Name: "hand", NameSource: "user", State: "working", RespawnFlags: []string{"-n", "hand"}},
 		"s-hand2": tsumugiJob("x", "hand2"),
 	})
-	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "busy"}, {Name: "hand"}, {Name: "hand2"}}}}
+	// 手で起こしたものは会話の中身がある。s-empty・s-fresh は中身の無い空の会話（再起動直後に Claude Code が起こしたもの）
+	stubTranscripts(t, "s-hand", "s-hand2")
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "busy"}, {Name: "hand"}, {Name: "hand2"}, {Name: "empty"}, {Name: "fresh"}}}}
 	states := map[string]affState{"x": {Sessions: map[string]sessionState{
 		"ok": {SessionID: "s-ok"}, "auto": {SessionID: "s-auto"}, "busy": {SessionID: "s-busy"},
+		"empty": {SessionID: "s-empty-real"}, "fresh": {SessionID: "s-fresh-real"},
 	}}}
 	all := []agent{
 		{Name: "ok", SessionID: "s-ok", ID: "ok000000", Pid: 1, Status: "idle"},
@@ -346,6 +349,8 @@ func TestAdoptRunning(t *testing.T) {
 		{Name: "busy-auto", SessionID: "s-busy", ID: "busy0000", Pid: 3, Status: "busy"},
 		{Name: "hand", SessionID: "s-hand", ID: "hand0000", Pid: 4, Status: "idle", StartedAt: 5},
 		{Name: "hand2", SessionID: "s-hand2", ID: "hand2000", Pid: 5, Status: "busy", StartedAt: 5},
+		{Name: "empty", SessionID: "s-empty", ID: "2f3fa587", Pid: 6, Status: "idle", StartedAt: 5},
+		{Name: "fresh", SessionID: "s-fresh", ID: "fresh000", Pid: 7, Status: "idle", StartedAt: time.Now().UnixMilli()},
 	}
 	f := &fakeClaude{}
 	f.install(t)
@@ -374,13 +379,17 @@ func TestAdoptRunning(t *testing.T) {
 		}
 		calls = append(calls, s)
 	}
-	want := []string{"stop b1049fe0", "rm s-auto", "--bg -n auto", "stop hand0000", "rm s-hand", "--bg -n hand"}
+	// 空の会話（古い）は配下に入れず、止めて一覧から外す。起きたばかりの空の会話（fresh）は様子を見る（何もしない）
+	want := []string{"stop b1049fe0", "rm s-auto", "--bg -n auto", "stop hand0000", "rm s-hand", "--bg -n hand", "stop 2f3fa587", "rm s-empty"}
 	if strings.Join(calls, " | ") != strings.Join(want, " | ") {
 		t.Fatalf("呼び方が違う:\n got %q\nwant %q\n%s", calls, want, out.String())
 	}
 	st := states["x"].Sessions
 	if st["auto"].SessionID != "s-auto" || st["hand"].SessionID != "s-hand" || st["hand2"].SessionID != "s-hand2" || st["busy"].SessionID != "s-busy" {
 		t.Fatalf("控えが違う（同じ ID のまま控えるはず）: %+v", st)
+	}
+	if st["empty"].SessionID != "s-empty-real" || st["fresh"].SessionID != "s-fresh-real" {
+		t.Fatalf("空の会話を控えに入れた: %+v", st)
 	}
 	if !strings.Contains(out.String(), "作業中なので次の回に") {
 		t.Fatalf("作業中のものを次の回に回していない: %s", out.String())
