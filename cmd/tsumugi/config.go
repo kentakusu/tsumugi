@@ -32,6 +32,9 @@ type sessionSpec struct {
 	// 作業フォルダを、紡が起こす直前に Claude Code の「信頼済み」にする（trust.go）。
 	// 信頼の確認（フォルダのフックや MCP が勝手に動くのを防ぐ）を、書いた人の判断で先に済ませる。
 	Trust bool `json:"信頼する,omitempty"`
+	// 常駐するか。無ければ true（今までどおり、止まっていれば run が起こし直す）。
+	// false なら run は起こさず、定時・届けが来たときだけ起こして渡す（渡したあとは止めない）。
+	Resident *bool `json:"常駐,omitempty"`
 	// 動かすマシン（ホスト名）。空ならどのマシンでも。合わないマシンの紡は起こさず・止めない。
 	Machine string `json:"マシン,omitempty"`
 	// 決まった時刻に届ける指示。
@@ -80,6 +83,9 @@ func machineUnpinnedOnWSL() bool {
 	b, err := os.ReadFile("/proc/sys/kernel/osrelease")
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "microsoft")
 }
+
+// 常駐するか（「常駐」が無ければ常駐）。
+func (s sessionSpec) resident() bool { return s.Resident == nil || *s.Resident }
 
 // このマシンで動かすものか。
 func (s sessionSpec) here(machine string) bool {

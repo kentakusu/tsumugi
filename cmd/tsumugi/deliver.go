@@ -143,6 +143,36 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 	return true, ""
 }
 
+// 常駐しないセッションを、届け・定時のために初めて起こす。最初の指示と渡す指示の両方を付けて渡す。
+// 起きた会話の ID を返す（一覧にまだ出なければ ""。名前で run が拾う）。
+func startFresh(w io.Writer, af affiliation, s sessionSpec, prompt string) (string, bool) {
+	fmt.Fprint(w, " … まだ一度も起こしていないので、最初の指示と一緒に起こす")
+	if s.Trust {
+		if err := trustBeforeStart(io.Discard, action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}, false); err != nil {
+			fmt.Fprintln(w, " … 作業フォルダを信頼済みにできず失敗:", err)
+			return "", false
+		}
+	}
+	spec := s
+	spec.Prompt = prompt
+	if s.Prompt != "" {
+		spec.Prompt = s.Prompt + "\n\n" + prompt
+	}
+	if _, err := runClaudeIn(s.Dir, startArgs(af, spec)...); err != nil {
+		fmt.Fprintln(w, " … 失敗:", err)
+		return "", false
+	}
+	resumed[s.Name] = true
+	startedNow[s.Name] = true
+	a, ok := waitRunning(s.Name, resumeWait)
+	if !ok {
+		fmt.Fprintln(w, " … した（まだ一覧に出ない）")
+		return "", true
+	}
+	fmt.Fprintln(w, " … した")
+	return a.SessionID, true
+}
+
 var stopSettle = 3 * time.Second // テストで縮める
 
 func short(id string) string {
@@ -237,7 +267,8 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 				continue
 			}
 			prev := states[af.ID].Sessions[name]
-			if prev.SessionID == "" {
+			if prev.SessionID == "" && s.resident() {
+				// 常駐するものは、run が最初の指示を付けて起こしてから渡す
 				fmt.Fprintf(w, "%s/%s: 届け %d 件 … まだ一度も起こしていないので次の回に\n", af.ID, name, len(keep))
 				continue
 			}
@@ -251,11 +282,28 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 			}
 			fmt.Fprintf(w, "%s/%s: 届け %d 件を渡す", af.ID, name, len(keep))
 			if dry {
+				if d.SessionID == "" {
+					fmt.Fprint(w, "（常駐しない・まだ一度も起こしていないので、最初の指示と一緒に起こす）")
+				}
 				fmt.Fprintf(w, "（しない）%q\n", d.Prompt)
 				continue
 			}
-			ok, newID := deliverPrompt(w, d)
-			if !ok {
+			var done bool
+			var newID string
+			if d.SessionID == "" {
+				newID, done = startFresh(w, af, s, d.Prompt)
+				if done {
+					st := states[af.ID]
+					st.Sessions[name] = sessionState{SessionID: newID} // ID が見えなくても、控えに載せて run の record に拾わせる
+					if err := saveState(af, st); err != nil {
+						return true, err
+					}
+					newID = ""
+				}
+			} else {
+				done, newID = deliverPrompt(w, d)
+			}
+			if !done {
 				continue
 			}
 			if newID != "" {
