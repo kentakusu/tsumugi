@@ -18,6 +18,12 @@ func printList(w io.Writer, affs []affiliation, all []agent) {
 }
 
 func printListOn(w io.Writer, machine string, affs []affiliation, all []agent) {
+	// 控えの会話 ID で claude agents と突き合わせ、紡の外のものも並べる（lineage.go）
+	printListFull(w, machine, affs, loadStates(affs), all)
+}
+
+// 前の形の一覧（控えを見ず、名前で探す）。いまは使っていない。
+func printListByName(w io.Writer, machine string, affs []affiliation, all []agent) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "番号\t名前\t所属\t実際\tID\tマシン\t作業フォルダ")
 	n := 0

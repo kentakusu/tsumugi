@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 const stateFile = "状態.json"
@@ -22,6 +23,30 @@ type sessionState struct {
 	Delivered map[string]string `json:"定時,omitempty"`
 	// 見張り: いまの様子と、いつから続いているか。
 	Watch *watchState `json:"見張り,omitempty"`
+	// 前の会話: 紡がこのセッションとして控えていた、いまより前の会話 ID（新しく立て直した・写しになった等）。
+	// tsumugi tree が並べ、claude agents の Completed に残っていれば紡が claude rm で片付ける（lineage.go）。
+	Previous []prevSession `json:"前の会話,omitempty"`
+}
+
+type prevSession struct {
+	ID    string `json:"会話"`
+	Until string `json:"まで"` // 乗り換えた時刻
+	Why   string `json:"わけ,omitempty"`
+}
+
+// 控えの会話を newID に乗り換える。前の会話は「前の会話」に残す。乗り換えたら true。
+func (ss *sessionState) moveTo(newID, why string) bool {
+	if newID == "" || ss.SessionID == newID {
+		return false
+	}
+	if ss.SessionID != "" {
+		ss.Previous = append(ss.Previous, prevSession{ID: ss.SessionID, Until: time.Now().Format(time.RFC3339), Why: why})
+		if len(ss.Previous) > 50 { // 増え続けないように古いものから捨てる
+			ss.Previous = ss.Previous[len(ss.Previous)-50:]
+		}
+	}
+	ss.SessionID = newID
+	return true
 }
 
 type affState struct {

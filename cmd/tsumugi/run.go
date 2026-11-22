@@ -255,13 +255,27 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	}
 	machine := thisMachine()
 	// 動いているものを配下に揃える（手で起こしたもの・紡の設定が抜けたもの。同じ会話 ID のまま付け直す）。
-	if adoptRunning(w, machine, affs, states, all, dry) && !dry {
+	// 所属.json に無い名前で動いている背景セッション（手で起こしたもの）を、その機の所属に「常駐しない」で足す（lineage.go）。
+	// 足したものは、すぐ下の adoptRunning が空いているときに紡の設定で付け直す。
+	adopted := adoptUnknown(w, machine, affs, states, all, dry)
+	if (adoptRunning(w, machine, affs, states, all, dry) || adopted) && !dry {
 		for _, af := range affs {
 			if err := saveState(af, states[af.ID]); err != nil {
 				return err
 			}
 		}
 		learnIDs(states)
+		if all, err = listAllAgents(); err != nil {
+			return err
+		}
+	}
+	// claude agents の Completed のうち、紡が過去に管理していたもの（前の会話・同じ名前の古い会話）を片付ける（lineage.go）。
+	if cleanupCompleted(w, machine, affs, states, all, dry) && !dry {
+		for _, af := range affs {
+			if err := saveState(af, states[af.ID]); err != nil {
+				return err
+			}
+		}
 		if all, err = listAllAgents(); err != nil {
 			return err
 		}
@@ -431,7 +445,7 @@ func record(w io.Writer, affs []affiliation, states map[string]affState, all []a
 						continue
 					}
 					old := prev.SessionID
-					prev.SessionID = a.SessionID
+					prev.moveTo(a.SessionID, "写しを引き取った")
 					retireOldID(w, old, all)
 				}
 				st.Sessions[s.Name] = prev
@@ -522,7 +536,7 @@ func deliverSchedules(w io.Writer, affs []affiliation, states map[string]affStat
 		st := states[d.Affiliation]
 		ss := st.Sessions[d.Name]
 		if newID != "" {
-			ss.SessionID = newID
+			ss.moveTo(newID, "写しになった")
 		}
 		if ss.Delivered == nil {
 			ss.Delivered = map[string]string{}

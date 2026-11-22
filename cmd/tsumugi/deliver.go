@@ -375,7 +375,7 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 			if newID != "" {
 				st := states[af.ID]
 				ss := st.Sessions[name]
-				ss.SessionID = newID
+				ss.moveTo(newID, "写しになった")
 				st.Sessions[name] = ss
 				if err := saveState(af, st); err != nil {
 					return true, err

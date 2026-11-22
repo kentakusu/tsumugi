@@ -166,7 +166,8 @@ func adoptRunning(w io.Writer, machine string, affs []affiliation, states map[st
 				// 控えの会話が動いていない。同じ名前で動いているもの（手で起こしたもの）があれば配下に入れる
 				var best agent
 				for _, x := range all {
-					if x.Pid > 0 && x.Name == sp.Name && x.StartedAt > best.StartedAt {
+					// 画面で開いているもの（interactive）は、人が打ち込んでいるので止めない（一覧には出す）
+					if x.Pid > 0 && x.Kind != "interactive" && x.Name == sp.Name && x.StartedAt > best.StartedAt {
 						best = x
 					}
 				}
@@ -206,7 +207,7 @@ func adoptRunning(w io.Writer, machine string, affs []affiliation, states map[st
 				if adopting {
 					fmt.Fprintf(w, "%s/%s: 紡の外で動いていた %s は紡の設定を持っているので、そのまま配下に入れる\n", af.ID, sp.Name, short(a.SessionID))
 					if !dry {
-						ss.SessionID = a.SessionID
+						ss.moveTo(a.SessionID, "手で起こしたものを配下に入れた")
 						st.Sessions[sp.Name] = ss
 						any = true
 					}
@@ -226,7 +227,7 @@ func adoptRunning(w io.Writer, machine string, affs []affiliation, states map[st
 				continue
 			}
 			fmt.Fprintln(w, " … した")
-			ss.SessionID = a.SessionID
+			ss.moveTo(a.SessionID, "手で起こしたものを配下に入れた")
 			st.Sessions[sp.Name] = ss
 			any = true
 		}

@@ -36,7 +36,8 @@ const usage = `使い方: tsumugi <コマンド>
 
   status              所属ごとに、望む状態（所属.json）と実際（claude agents）を並べる
   run [--dry]         望む状態に寄せる（--dry はやることを出すだけ）
-  list, l             紡のセッションを番号・名前で並べる
+  list, l             紡のセッションを番号・名前で並べる（claude agents に出ているものは紡の外のものも全部出す）
+  tree, 木            セッションごとに、いまの会話と前の会話を木の形で並べる（紡の外は作業フォルダごと）
   attach, a <名前|番号|ID>
                       開く（止まっていれば同じ会話のまま起こしてから）
   届ける, send <名前> [指示…]
@@ -52,6 +53,7 @@ const usage = `使い方: tsumugi <コマンド>
 
   名前を変える, rename <いまの名前> <新しい名前>
                       紡のセッションの名前を変える（同じ会話を引き継いで、新しい名前で起こし直す）
+  新しく, renew <名前>  同じ名前のまま、新しい会話で最初の指示から始め直す（前の会話は tree に残る）
   設定そろえ, align-settings [--dry]
                       Claude Code のユーザー設定を基本の値（settings/claude-base.json）と比べ、紡.json で許した鍵だけ合わせる
   チャネル準備, channel-setup
@@ -68,7 +70,7 @@ func main() {
 	}
 	var err error
 	// 知らない引数は黙って捨てない（所属.json の知らないキーと同じ考え。2026-11-17 Reatex の指摘）
-	extra := map[string]int{"status": 0, "list": 0, "l": 0, "run": 1, "install": 1, "uninstall": 1, "version": 0, "--version": 0, "-v": 0, "版": 0}
+	extra := map[string]int{"status": 0, "list": 0, "l": 0, "tree": 0, "木": 0, "run": 1, "install": 1, "uninstall": 1, "version": 0, "--version": 0, "-v": 0, "版": 0}
 	if n, ok := extra[os.Args[1]]; ok {
 		rest := os.Args[2:]
 		if len(rest) > n || (len(rest) == 1 && rest[0] != "--dry") {
@@ -96,6 +98,10 @@ func main() {
 		err = cmdChannel()
 	case "名前を変える", "rename":
 		err = cmdRename(os.Args[2:])
+	case "新しく", "renew":
+		err = cmdRenew(os.Args[2:])
+	case "tree", "木":
+		err = cmdTree()
 	case "設定そろえ", "align-settings":
 		err = cmdSettingsAlign(os.Args[2:])
 	case "チャネル準備", "channel-setup":
