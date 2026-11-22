@@ -183,6 +183,29 @@ func daemonJustStarted(now time.Time) time.Duration {
 	return 0
 }
 
+// 紡が控えを新しい会話 ID に乗り換えたあと、古い ID を Claude Code の一覧から外す（claude rm）。
+// 外さないと、claude の一覧に同じ名前が「Completed」として並び続ける（2026-11-22 UseAI: useai-accounting が 2 つに見えた）。
+// claude rm は「安全なら」一覧から外し、その worktree を消す（未 push の変更があれば断る）。会話の記録は残る
+// （useai-main が実測: claude rm c7f68470 のあとも jsonl は残った）。古い ID が動いているときは触らない。
+func retireOldID(w io.Writer, oldID string, all []agent) {
+	if oldID == "" {
+		return
+	}
+	for _, a := range all {
+		if a.SessionID == oldID && a.Pid > 0 {
+			return
+		}
+	}
+	if _, err := runClaude("rm", short(oldID)); err != nil {
+		if strings.Contains(err.Error(), "No session matching") {
+			return // もう一覧に無い（Claude Code が片付けた）
+		}
+		fmt.Fprintf(w, "（古い会話 %s は一覧から外せませんでした: %v）\n", short(oldID), err)
+		return
+	}
+	fmt.Fprintf(w, "（古い会話 %s は claude の一覧から外した・会話の記録は残る）\n", short(oldID))
+}
+
 // その会話を、フラグ無しの --resume で起こしても紡の設定が戻るか
 // （job の記録が在り、紡が -n で付けた名前を覚えている）。
 // ★名前が残っていても、記録が failed（supervisor が落ちている間にプロセスが消えた等）だと、Claude Code は

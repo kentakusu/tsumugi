@@ -154,6 +154,9 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 	newID := adoptCopy(d, t0)
 	if newID != "" {
 		fmt.Fprintf(w, " … した（★写しになった: %s → %s。紡はこちらを追う）\n", short(d.SessionID), short(newID))
+		if all, err := listAllAgents(); err == nil {
+			retireOldID(w, d.SessionID, all)
+		}
 		return true, newID
 	}
 	fmt.Fprintln(w, " … した")

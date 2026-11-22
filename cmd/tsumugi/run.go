@@ -408,7 +408,9 @@ func record(w io.Writer, affs []affiliation, states map[string]affState, all []a
 							af.ID, s.Name, short(a.SessionID), short(prev.SessionID), a.ID)
 						continue
 					}
+					old := prev.SessionID
 					prev.SessionID = a.SessionID
+					retireOldID(w, old, all)
 				}
 				st.Sessions[s.Name] = prev
 			}

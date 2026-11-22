@@ -132,9 +132,21 @@ func TestRecordSkipsEmptyConversation(t *testing.T) {
 	learnIDs(states)
 	startedNow = map[string]bool{"new": true}
 	defer func() { startedNow = map[string]bool{}; knownIDs = map[string]string{} }()
+	f := &fakeClaude{}
+	f.install(t)
 	var out bytes.Buffer
 	if err := record(&out, []affiliation{af}, states, all); err != nil {
 		t.Fatal(err)
+	}
+	// 乗り換えた oss の古い ID（OLD）だけを claude rm で一覧から外す。乗り換えなかった acc・初めての new には触らない
+	var rms []string
+	for _, c := range f.calls {
+		if len(c) > 0 && c[0] == "rm" {
+			rms = append(rms, strings.Join(c, " "))
+		}
+	}
+	if len(rms) != 1 || rms[0] != "rm OLD" {
+		t.Fatalf("古い ID の片付けが違う: %q", rms)
 	}
 	if got := states["a"].Sessions["acc"].SessionID; got != "REAL" {
 		t.Fatalf("中身の無い会話に乗り換えた: %s", got)
@@ -147,6 +159,24 @@ func TestRecordSkipsEmptyConversation(t *testing.T) {
 	}
 	if got := states["a"].Sessions["new"].SessionID; got != "FRESH" {
 		t.Fatalf("初めて起こしたものを控えていない: %s", got)
+	}
+}
+
+// 古い ID が動いているときは claude rm しない。
+func TestRetireOldIDSkipsRunning(t *testing.T) {
+	f := &fakeClaude{}
+	f.install(t)
+	var out bytes.Buffer
+	retireOldID(&out, "OLD", []agent{{SessionID: "OLD", Pid: 5}})
+	retireOldID(&out, "", nil)
+	for _, c := range f.calls {
+		if len(c) > 0 && c[0] == "rm" {
+			t.Fatalf("動いているもの・空の ID を claude rm した: %q", f.calls)
+		}
+	}
+	retireOldID(&out, "c7f68470-e565-4ded-af40-7d658b222bdf", nil)
+	if len(f.calls) != 1 || strings.Join(f.calls[0], " ") != "rm c7f68470" {
+		t.Fatalf("止まっている古い ID を短い ID で外していない（対照）: %q", f.calls)
 	}
 }
 
