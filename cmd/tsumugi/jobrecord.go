@@ -28,8 +28,10 @@ const refitNotice = "【紡】Claude Code が起こした時の設定を覚え�
 	"会話はそのまま続いています。続きの作業があれば続け、無ければ待機してください。"
 
 type jobRecord struct {
-	Name       string `json:"name"`
-	NameSource string `json:"nameSource"`
+	Name         string   `json:"name"`
+	NameSource   string   `json:"nameSource"`
+	State        string   `json:"state"`
+	RespawnFlags []string `json:"respawnFlags"`
 }
 
 // Claude Code の設定の置き場（~/.claude。CLAUDE_CONFIG_DIR があればそれ）。
@@ -183,7 +185,12 @@ func daemonJustStarted(now time.Time) time.Duration {
 
 // その会話を、フラグ無しの --resume で起こしても紡の設定が戻るか
 // （job の記録が在り、紡が -n で付けた名前を覚えている）。
+// ★名前が残っていても、記録が failed（supervisor が落ちている間にプロセスが消えた等）だと、Claude Code は
+// その記録の設定を使わずに写しを作り、名前を自動で付け、フラグ無しで起こす（2026-11-22 UseAI で実測:
+// useai-accounting の c7f68470 は name・nameSource: user・respawnFlags が残ったまま state: failed で、
+// フラグ無し＋定時の指示で渡すと写し 75e5d408 が auto の名前・respawnFlags 空で起きた）。
+// フラグが空の記録も、覚えている設定が無い。どちらも付け直す側に倒す。
 func jobKeepsSettings(sessionID, name string) bool {
 	j, ok := readJobRecord(sessionID)
-	return ok && j.Name == name && j.NameSource == "user"
+	return ok && j.Name == name && j.NameSource == "user" && j.State != "failed" && len(j.RespawnFlags) > 0
 }

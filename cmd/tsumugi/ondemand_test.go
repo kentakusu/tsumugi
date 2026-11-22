@@ -97,7 +97,7 @@ func TestPlanOnDemand(t *testing.T) {
 func TestScheduleOnDemand(t *testing.T) {
 	onDemandSetup(t)
 	// Claude Code が設定を覚えている会話（付け直しの場合は TestDeliverPromptRefit）
-	stubJobRecords(t, map[string]jobRecord{"s1": {Name: "od-old", NameSource: "user"}})
+	stubJobRecords(t, map[string]jobRecord{"s1": {Name: "od-old", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}}})
 	now := time.Date(2026, 11, 22, 9, 0, 0, 0, time.Local)
 	sc := []scheduleSpec{{Cron: "0 9 * * *", Prompt: "朝の巡回"}}
 	dir := t.TempDir()

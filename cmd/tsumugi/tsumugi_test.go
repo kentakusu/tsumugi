@@ -137,7 +137,7 @@ func stubJobRecords(t *testing.T, recs map[string]jobRecord) {
 }
 
 func TestPlan(t *testing.T) {
-	stubJobRecords(t, map[string]jobRecord{"s-old": {Name: "a-old", NameSource: "user"}})
+	stubJobRecords(t, map[string]jobRecord{"s-old": {Name: "a-old", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}}})
 	all := []agent{
 		{Name: "a-run", Pid: 1, SessionID: "s-run", ID: "s-run"},
 		{Name: "a-old", SessionID: "s-old"},                    // 止まっている
@@ -389,7 +389,7 @@ func TestWatch(t *testing.T) {
 
 func TestDeliverQueue(t *testing.T) {
 	// Claude Code が設定を覚えている会話（付け直しの場合は TestDeliverPromptRefit）
-	stubJobRecords(t, map[string]jobRecord{"X": {Name: "s", NameSource: "user"}})
+	stubJobRecords(t, map[string]jobRecord{"X": {Name: "s", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}}})
 	t.Setenv("TSUMUGI_MACHINE", "m")
 	resumeWait, stopSettle = 0, 0
 	defer func() { resumeWait, stopSettle = 15*time.Second, 3*time.Second }()

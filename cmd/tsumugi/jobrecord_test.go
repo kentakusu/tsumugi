@@ -14,16 +14,22 @@ import (
 // 記録が無い・名前が自動で付け替わったときは、紡のフラグを全部付けて --resume する（指示は付けない）。
 func TestPlanRefitWhenJobForgot(t *testing.T) {
 	stubJobRecords(t, map[string]jobRecord{
-		"s-keep": {Name: "keep", NameSource: "user"},
+		"s-keep": {Name: "keep", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}},
 		"s-auto": {Name: "cc-34-migration-handoff", NameSource: "auto"},
+		// 名前は残っているが failed（2026-11-22 UseAI の useai-accounting）・フラグが空
+		"s-failed":  {Name: "failed", NameSource: "user", State: "failed", RespawnFlags: []string{"-n"}},
+		"s-noflags": {Name: "noflags", NameSource: "user", State: "stopped"},
 	})
 	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{
 		{Name: "keep", Prompt: "最初の指示", Permission: "bypassPermissions"},
 		{Name: "auto", Prompt: "最初の指示", Permission: "bypassPermissions"},
 		{Name: "gone", Prompt: "最初の指示", Permission: "bypassPermissions"},
+		{Name: "failed", Prompt: "最初の指示", Permission: "bypassPermissions"},
+		{Name: "noflags", Prompt: "最初の指示", Permission: "bypassPermissions"},
 	}}}
 	states := map[string]affState{"x": {Sessions: map[string]sessionState{
 		"keep": {SessionID: "s-keep"}, "auto": {SessionID: "s-auto"}, "gone": {SessionID: "s-gone"},
+		"failed": {SessionID: "s-failed"}, "noflags": {SessionID: "s-noflags"},
 	}}}
 	got := map[string]action{}
 	for _, a := range plan(affs, states, nil) {
@@ -32,7 +38,7 @@ func TestPlanRefitWhenJobForgot(t *testing.T) {
 	if a := got["keep"]; a.Verb != "起こし直す" || a.Refit || strings.Join(a.Args, " ") != "--bg --resume s-keep" {
 		t.Fatalf("覚えているならフラグ無しのはず（対照）: %+v", a)
 	}
-	for _, name := range []string{"auto", "gone"} {
+	for _, name := range []string{"auto", "gone", "failed", "noflags"} {
 		a := got[name]
 		args := strings.Join(a.Args, " ")
 		if a.Verb != "起こし直す" || !a.Refit {
@@ -57,12 +63,16 @@ func TestPlanRefitWhenJobForgot(t *testing.T) {
 // （run の「起こし直す」より先にこの道を通るので、ここが付け直さないと抜けたまま起き続ける）
 func TestDeliverPromptRefit(t *testing.T) {
 	onDemandSetup(t)
-	stubJobRecords(t, map[string]jobRecord{"s-keep": {Name: "keep", NameSource: "user"}})
+	stubJobRecords(t, map[string]jobRecord{
+		"s-keep": {Name: "keep", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}},
+		// 名前もフラグも残っているが failed（2026-11-22 UseAI: フラグ無しで渡すと auto の名前・フラグ無しの写しになった）
+		"s-failed": {Name: "failed", NameSource: "user", State: "failed", RespawnFlags: []string{"-n"}},
+	})
 	af := affiliation{ID: "x"}
 	for _, c := range []struct {
 		name, id string
 		refit    bool
-	}{{"keep", "s-keep", false}, {"auto", "s-auto", true}} {
+	}{{"keep", "s-keep", false}, {"auto", "s-auto", true}, {"failed", "s-failed", true}} {
 		f := &fakeClaude{}
 		f.install(t)
 		spec := sessionSpec{Name: c.name, Prompt: "最初の指示", Permission: "bypassPermissions"}
@@ -82,7 +92,7 @@ func TestDeliverPromptRefit(t *testing.T) {
 			}
 			continue
 		}
-		for _, want := range []string{"-n auto", `"TSUMUGI_SESSION":"auto"`, "--permission-mode bypassPermissions", "--resume s-auto"} {
+		for _, want := range []string{"-n " + c.name, `"TSUMUGI_SESSION":"` + c.name + `"`, "--permission-mode bypassPermissions", "--resume " + c.id} {
 			if !strings.Contains(args, want) {
 				t.Fatalf("付け直しに %q が無い: %s", want, args)
 			}
@@ -194,7 +204,7 @@ func TestReadDaemonStartedAt(t *testing.T) {
 // 過ぎていれば今までどおり（対照）。
 func TestWaitAfterDaemonStart(t *testing.T) {
 	onDemandSetup(t)
-	stubJobRecords(t, map[string]jobRecord{"s1": {Name: "s", NameSource: "user"}})
+	stubJobRecords(t, map[string]jobRecord{"s1": {Name: "s", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}}})
 	stubTranscripts(t, "s1")
 	old := daemonStartedAt
 	t.Cleanup(func() { daemonStartedAt = old })
@@ -222,7 +232,7 @@ func TestWaitAfterDaemonStart(t *testing.T) {
 // 動いているのに Claude Code 側の名前が付け替わったものだけを★で知らせる。
 func TestWarnLostSettings(t *testing.T) {
 	stubJobRecords(t, map[string]jobRecord{
-		"s-ok":   {Name: "ok", NameSource: "user"},
+		"s-ok":   {Name: "ok", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}},
 		"s-auto": {Name: "lw-monitoring-patrol", NameSource: "auto"},
 	})
 	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "stopped"}}}}
