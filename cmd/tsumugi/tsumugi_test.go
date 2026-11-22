@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -582,6 +583,9 @@ func TestLastDueWithin(t *testing.T) {
 }
 
 func TestStepStreamsLines(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh が無い土台（Windows など）")
+	}
 	var out bytes.Buffer
 	if !step(&out, false, "sh", "-c", `printf 'alpha\rbeta\n-\n\\\ngamma\ngamma\n'`) {
 		t.Fatal("失敗した")
@@ -812,7 +816,8 @@ func TestYuiSecretSources(t *testing.T) {
 	t.Setenv("TSUMUGI_YUI_SECRET_FILE", "")
 	sf := filepath.Join(dir, "s")
 	os.WriteFile(sf, []byte("abcdefghijklmnopq\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x","合言葉ファイル":"`+sf+`"}}`), 0o600)
+	sfj, _ := json.Marshal(sf) // ★Windows のパスの \ を JSON として逃がす（yui-windows の指摘）
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x","合言葉ファイル":`+string(sfj)+`}}`), 0o600)
 	if s, err := yuiSecret(); err != nil || s != "abcdefghijklmnopq" {
 		t.Fatalf("ファイルから読めない: %q %v", s, err)
 	}
@@ -821,8 +826,13 @@ func TestYuiSecretSources(t *testing.T) {
 		t.Fatalf("コマンドから読めない: %q %v", s, err)
 	}
 	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x"}}`), 0o600)
-	if s, _ := yuiSecret(); s != "" {
-		t.Fatal("出どころが無いのに合言葉を作った")
+	if s, err := yuiSecret(); s != "" || err != nil {
+		t.Fatalf("出どころが無いのに合言葉を作った、または誤りにした: %q %v", s, err)
+	}
+	// 壊れた紡.json は「合言葉が無い」ではなく誤りとして返す（対照）
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":`), 0o600)
+	if _, err := yuiSecret(); err == nil {
+		t.Fatal("壊れた紡.json を「合言葉なし」として飲んだ")
 	}
 }
 
@@ -839,22 +849,46 @@ func TestYuiRejectsFlags(t *testing.T) {
 	}
 }
 
-func TestYuiTargetTwoLayers(t *testing.T) {
+func TestYuiLayers(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TSUMUGI_HOME", dir)
 	t.Setenv("TSUMUGI_YUI", "")
-	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"127.0.0.1:1"}}`), 0o600)
-	writeAff(t, dir, "yume", `{"表示名":"y","セッション":[{"名前":"s","作業フォルダ":"/tmp"}],"結":{"アドレス":"10.0.0.1:2","合言葉ファイル":"~/.s"}}`)
-	writeAff(t, dir, "plain", `{"表示名":"p","セッション":[{"名前":"q","作業フォルダ":"/tmp"}]}`)
-	t.Setenv("TSUMUGI_AFFILIATION", "yume")
-	if c, w, _ := yuiTarget(false); c.Addr != "10.0.0.1:2" || !strings.Contains(w, "所属") {
-		t.Fatalf("所属の結を引かない: %v %s", c, w)
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"127.0.0.1:7952"},"結の層":{"useai":{"アドレス":"127.0.0.1:7953"},"reatex":{"アドレス":"127.0.0.1:7954"},"yumeyume":{"アドレス":"127.0.0.1:7955"}}}`), 0o600)
+	writeAff(t, dir, "reatex", `{"表示名":"r","セッション":[{"名前":"s","作業フォルダ":"/tmp"}],"結":{"既定":"reatex","使える":["個人","useai","reatex"]}}`)
+	writeAff(t, dir, "useai", `{"表示名":"u","セッション":[{"名前":"u","作業フォルダ":"/tmp"}],"結":{"既定":"useai","使える":["個人","useai","reatex","yumeyume"]}}`)
+	writeAff(t, dir, "old", `{"表示名":"o","セッション":[{"名前":"o","作業フォルダ":"/tmp"}],"結":{"アドレス":"10.0.0.1:2"}}`)
+	writeAff(t, dir, "none", `{"表示名":"n","セッション":[{"名前":"n","作業フォルダ":"/tmp"}]}`)
+
+	t.Setenv("TSUMUGI_AFFILIATION", "reatex")
+	if c, l, def, err := yuiTarget(""); err != nil || c.Addr != "127.0.0.1:7954" || l != "reatex" || !def {
+		t.Fatalf("既定の層に行かない: %v %s %v %v", c, l, def, err)
 	}
-	if c, _, _ := yuiTarget(true); c.Addr != "127.0.0.1:1" {
-		t.Fatalf("--共有 で共有の結を引かない: %v", c)
+	// 対照: 同じ所属で、使える層は通り、使えない層は断る（何でも断る実装と区別する）
+	if c, _, def, err := yuiTarget("useai"); err != nil || c.Addr != "127.0.0.1:7953" || def {
+		t.Fatalf("使える層（useai）が通らない: %v %v", c, err)
 	}
-	t.Setenv("TSUMUGI_AFFILIATION", "plain")
-	if c, w, _ := yuiTarget(false); c.Addr != "127.0.0.1:1" || w != "共有の結" {
-		t.Fatalf("所属に結が無いのに共有に戻らない: %v %s", c, w)
+	if _, _, _, err := yuiTarget("yumeyume"); err == nil || !strings.Contains(err.Error(), "使える層: 個人 / useai / reatex") {
+		t.Fatalf("使えない層（yumeyume）を断らない、または通る道を書かない: %v", err)
+	}
+	if c, _, _, err := yuiTarget(personalLayer); err != nil || c.Addr != "127.0.0.1:7952" {
+		t.Fatalf("--共有（個人）が「結」に行かない: %v %v", c, err)
+	}
+	t.Setenv("TSUMUGI_AFFILIATION", "useai")
+	if _, _, _, err := yuiTarget("yumeyume"); err != nil {
+		t.Fatalf("useai はゆめゆめも使えるはず: %v", err)
+	}
+	t.Setenv("TSUMUGI_AFFILIATION", "old")
+	if c, l, _, err := yuiTarget(""); err != nil || c.Addr != "10.0.0.1:2" || l != "old" {
+		t.Fatalf("旧い形（所属の結を直接書く）が動かない: %v %s %v", c, l, err)
+	}
+	t.Setenv("TSUMUGI_AFFILIATION", "none")
+	if c, l, _, err := yuiTarget(""); err != nil || c.Addr != "127.0.0.1:7952" || l != personalLayer {
+		t.Fatalf("結の決まりが無い所属が個人に戻らない: %v %s %v", c, l, err)
+	}
+	if _, _, _, err := yuiTarget("無い層"); err == nil || !strings.Contains(err.Error(), "このマシンの層") {
+		t.Fatalf("無い層で、ある層を知らせない: %v", err)
+	}
+	if !writes([]string{"一覧 (決定:)\n作る (決定:x)"}) || writes([]string{"一覧 (決定:)"}) {
+		t.Fatal("書き込みの見分けが違う")
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,11 +37,21 @@ type globalConfig struct {
 	AlignSettings []string `json:"設定を合わせる,omitempty"`
 	// 更新（Claude Code と環境を新しくする）。update.go
 	Update *updateSpec `json:"更新,omitempty"`
-	// 共有の結（全所属から読める。使う人の決めたこと・好み・一般の決まり）。
+	// 「個人」の層（使う人の決めたこと・好み・所属をまたぐ一般の決まり）。「結の層」の「個人」の別名。
 	Yui yuiConf `json:"結"`
+	// このマシンからつなげる結の層（名前 → つなぎ方）。例 {"個人": …7952, "useai": …7953}
+	Layers map[string]yuiConf `json:"結の層,omitempty"`
 }
 
-// 結のデーモンへのつなぎ方。紡.json の「結」は共有の結、所属.json の「結」はその所属だけの結。
+// 所属.json の「結」。
+type affYui struct {
+	Default string   `json:"既定,omitempty"`  // 書くときの既定の層
+	Allowed []string `json:"使える,omitempty"` // 使ってよい層（無ければ制限なし）
+	// 旧い形（eefe9b3）: 所属だけの結のつなぎ方を直接書く。層の名前は所属の名前になる。
+	yuiConf
+}
+
+// 結のデーモンへのつなぎ方。
 type yuiConf struct {
 	Addr string `json:"アドレス"` // 例 127.0.0.1:7952
 	// 別の筐体から LAN の口（--lan）につなぐときの合言葉の出どころ。★値そのものは書かない。
@@ -69,10 +80,12 @@ func loadGlobal(root string) (globalConfig, error) {
 		// マシンの名前・チャネル・更新・結のアドレスが全部読めなくなり、黙って振る舞いが変わる
 		// （2026-11-22 Windows で、結への道が 6 時間 45 分 閉じた）。知らない鍵は飛ばして読み、知らせる。
 		if !strings.Contains(err.Error(), "unknown field") {
+			globalBroken(p, err)
 			return g, fmt.Errorf("%s の書き方が違います: %w", p, err)
 		}
 		g = globalConfig{}
 		if err := json.Unmarshal(b, &g); err != nil {
+			globalBroken(p, err)
 			return g, fmt.Errorf("%s の書き方が違います: %w", p, err)
 		}
 		warnOnce.Do(func() {
@@ -82,35 +95,108 @@ func loadGlobal(root string) (globalConfig, error) {
 	return g, nil
 }
 
-var warnOnce sync.Once
+var warnOnce, brokenOnce sync.Once
+
+// ★紡.json が壊れているのを、呼ぶ側が誤りを捨てても見えるように、標準エラーに 1 回出す
+// （チャネル・更新・入れ直しは、読めなければ黙って既定に戻るため）。
+func globalBroken(p string, err error) {
+	brokenOnce.Do(func() {
+		fmt.Fprintf(os.Stderr, "tsumugi: ★%s が壊れていて読めません（%v）。マシン名・チャネル・更新・結の設定が既定に戻ります。直してください\n", p, err)
+	})
+}
 
 // 結のデーモンのアドレス。環境変数 TSUMUGI_YUI が先。
-// どの結につなぐか。shared なら共有の結（紡.json）。そうでなければ、このセッションの所属に
-// 「結」があればそれ、無ければ共有の結。戻り値の where は人に見せる名前。
-func yuiTarget(shared bool) (yuiConf, string, error) {
+const personalLayer = "個人"
+
+// このマシンの結の層の一覧（紡.json の「結の層」と、「結」＝「個人」）。
+func yuiLayers(g globalConfig) map[string]yuiConf {
+	m := map[string]yuiConf{}
+	for k, v := range g.Layers {
+		m[k] = v
+	}
+	if _, ok := m[personalLayer]; !ok && g.Yui.Addr != "" {
+		m[personalLayer] = g.Yui
+	}
+	if c, ok := m[personalLayer]; ok {
+		if a := os.Getenv("TSUMUGI_YUI"); a != "" {
+			c.Addr = a
+			m[personalLayer] = c
+		}
+	}
+	return m
+}
+
+// 所属の決まり: 既定の層と、使える層（nil なら制限なし）。
+func affLayers(a *affiliation, layers map[string]yuiConf) (string, []string) {
+	if a == nil || a.Yui == nil {
+		return personalLayer, nil
+	}
+	y := a.Yui
+	if y.Addr != "" { // 旧い形
+		layers[a.ID] = y.yuiConf
+		def := a.ID
+		if y.Default != "" {
+			def = y.Default
+		}
+		allowed := y.Allowed
+		if allowed == nil {
+			allowed = []string{personalLayer, a.ID}
+		}
+		return def, allowed
+	}
+	def := y.Default
+	if def == "" {
+		def = personalLayer
+	}
+	return def, y.Allowed
+}
+
+// どの層につなぐか。layer が空なら既定。戻り値: つなぎ方・層の名前・既定か。
+func yuiTarget(layer string) (yuiConf, string, bool, error) {
 	root, err := homeDir()
 	if err != nil {
-		return yuiConf{}, "", err
-	}
-	if !shared {
-		if aff := os.Getenv("TSUMUGI_AFFILIATION"); aff != "" {
-			if a, err := loadAffiliation(filepath.Join(root, aff, configFile)); err == nil && a.Yui != nil && a.Yui.Addr != "" {
-				return *a.Yui, "所属「" + aff + "」の結", nil
-			}
-		}
+		return yuiConf{}, "", false, err
 	}
 	g, err := loadGlobal(root)
 	if err != nil {
-		return yuiConf{}, "", err
+		return yuiConf{}, "", false, err
 	}
-	c := g.Yui
-	if a := os.Getenv("TSUMUGI_YUI"); a != "" {
-		c.Addr = a
+	layers := yuiLayers(g)
+	var af *affiliation
+	if aff := os.Getenv("TSUMUGI_AFFILIATION"); aff != "" {
+		if a, err := loadAffiliation(filepath.Join(root, aff, configFile)); err == nil {
+			a.ID = aff
+			af = &a
+		}
 	}
-	if c.Addr == "" {
-		return c, "", fmt.Errorf("結のデーモンのアドレスが決まっていません（%s の「結」「アドレス」か、環境変数 TSUMUGI_YUI）", filepath.Join(root, globalFile))
+	def, allowed := affLayers(af, layers)
+	if layer == "" {
+		layer = def
 	}
-	return c, "共有の結", nil
+	if allowed != nil && !contains(allowed, layer) {
+		return yuiConf{}, layer, false, fmt.Errorf("この所属（%s）は、結の「%s」の層を使えません。使える層: %s（所属.json の「結」「使える」で決める）",
+			af.ID, layer, strings.Join(allowed, " / "))
+	}
+	c, ok := layers[layer]
+	if !ok || c.Addr == "" {
+		var names []string
+		for k := range layers {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		return yuiConf{}, layer, false, fmt.Errorf("結の「%s」の層のつなぎ方がありません（%s の「結の層」）。このマシンの層: %s",
+			layer, filepath.Join(root, globalFile), strings.Join(names, " / "))
+	}
+	return c, layer, layer == def, nil
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
 }
 
 // 合言葉（LAN の口のとき）。127.0.0.1 の口なら要らない（空を返す）。
@@ -137,15 +223,17 @@ func yuiSecretOf(c yuiConf) (string, error) {
 	return "", nil
 }
 
-// 共有の結の合言葉（テストと互換のため）。
+// 「個人」の層の合言葉。★紡.json が壊れていたら、それを返す（「合言葉が無い」と区別する。yui-windows の指摘）。
 func yuiSecret() (string, error) {
-	c, _, err := yuiTarget(true)
+	root, err := homeDir()
 	if err != nil {
-		root, _ := homeDir()
-		g, _ := loadGlobal(root)
-		c = g.Yui
+		return "", err
 	}
-	return yuiSecretOf(c)
+	g, err := loadGlobal(root)
+	if err != nil {
+		return "", err
+	}
+	return yuiSecretOf(yuiLayers(g)[personalLayer])
 }
 
 // 名乗り。紡が起こしたセッションは「<所属>/<名前>@<マシン>」、それ以外は「人:<ユーザー>@<マシン>」。
@@ -230,22 +318,26 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []stri
 
 // tsumugi yui <問い合わせ>…（無ければ標準入力の全体を 1 件として）
 func cmdYui(args []string) error {
-	// 旗は --共有（--shared）だけ。共有の結（全所属から読める）につなぐ。無ければ所属の結（無ければ共有）。
-	shared := false
-	if len(args) > 0 && (args[0] == "--共有" || args[0] == "--shared") {
-		shared, args = true, args[1:]
+	// 旗は --層 <名前>（--layer）と --共有（＝--層 個人）だけ。無ければ所属の既定の層。
+	layer := ""
+	switch {
+	case len(args) > 0 && (args[0] == "--共有" || args[0] == "--shared"):
+		layer, args = personalLayer, args[1:]
+	case len(args) > 1 && (args[0] == "--層" || args[0] == "--layer"):
+		layer, args = args[1], args[2:]
 	}
 	// ★結の言葉は「-」で始まらない。ほかの旗のようなものは、問い合わせとして結に送らずに断る
 	// （yui コマンドの --read を付ける癖のあるセッションが、結の失敗として踏んでいた・Mac mini の報告）。
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
-			return fmt.Errorf("知らない旗です: %s（tsumugi yui の旗は --共有 だけです。--read なども要りません）", a)
+			return fmt.Errorf("知らない旗です: %s（tsumugi yui の旗は --層 <名前> と --共有 だけです。--read なども要りません）", a)
 		}
 	}
-	conf, where, err := yuiTarget(shared)
+	conf, layerName, isDefault, err := yuiTarget(layer)
 	if err != nil {
 		return err
 	}
+	where := "結の「" + layerName + "」の層"
 	addr := conf.Addr
 	queries := args
 	if len(queries) == 0 {
@@ -274,8 +366,25 @@ func cmdYui(args []string) error {
 	if err != nil {
 		return err
 	}
+	if !isDefault && writes(queries) {
+		// ★既定でない層に書いたら、どこに書いたかを残す（止めずに、見えるように。yui-windows の提案）
+		fmt.Fprintf(os.Stderr, "★%sに書きました（この所属の既定の層ではありません）\n", where)
+	}
 	if !ok {
 		return fmt.Errorf("結が失敗を返しました（上の end の行）")
 	}
 	return nil
+}
+
+// 書き込む言葉を含むか（作る・結ぶ・消す・詰め直す）。
+func writes(queries []string) bool {
+	for _, q := range queries {
+		for _, line := range strings.Split(q, "\n") {
+			f := strings.Fields(line)
+			if len(f) > 0 && (f[0] == "作る" || f[0] == "結ぶ" || f[0] == "消す" || f[0] == "詰め直す") {
+				return true
+			}
+		}
+	}
+	return false
 }

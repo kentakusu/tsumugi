@@ -65,7 +65,7 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 				// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
 				act.Verb, act.Args = "起こし直す", []string{"--bg", "--resume", prev.SessionID}
 			} else {
-				act.Verb, act.Args = "起こす", startArgs(af.ID, s)
+				act.Verb, act.Args = "起こす", startArgs(af, s)
 				if s.From != "" {
 					act.Verb = "写して起こす"
 				}
@@ -97,12 +97,11 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 const yuiRule = "知識（結・yui）は必ず `tsumugi yui '<問い合わせ>'` で、結のデーモンを通して読み書きする。" +
 	"yui コマンドで .yui ファイルを直接開かない。デーモンにつながらないときは、人に知らせて待つ。" +
 	"Claude Code のローカルメモリには書かない。" +
-	"結は 2 つある: 仕事の中身（案件・現在地・その所属の決定）は `tsumugi yui`（所属の結）へ、" +
-	"使う人の決めたこと・好み・所属をまたぐ一般の決まりは `tsumugi yui --共有 '<問い合わせ>'`（共有の結）へ。" +
-	"所属の中身を共有の結に書かない。" +
+
 	"人に聞きたいことがあるときは、質問の道具（AskUserQuestion）は使わず、文で聞いてターンを終える（無人で止まらないため）。"
 
-func startArgs(aff string, s sessionSpec) []string {
+func startArgs(af affiliation, s sessionSpec) []string {
+	aff := af.ID
 	set := map[string]any{"env": map[string]string{"TSUMUGI_AFFILIATION": aff, "TSUMUGI_SESSION": s.Name}}
 	for k, v := range fixedSettings {
 		set[k] = v
@@ -117,7 +116,7 @@ func startArgs(aff string, s sessionSpec) []string {
 	// ★無人のセッションでは、質問の画面（AskUserQuestion）が人の答えを待って止まる（askUserQuestionTimeout は
 	// 背景のセッションに効かない・2026-11-21 実測）。道具ごと使えなくし、聞くときは文で聞いてターンを終える。
 	args = append(args, "--disallowedTools", "AskUserQuestion")
-	args = append(args, "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule)
+	args = append(args, "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule+layerRule(af))
 	if s.Permission != "" {
 		args = append(args, "--permission-mode", s.Permission)
 	}
@@ -452,4 +451,26 @@ func channelOn() bool {
 	}
 	g, err := loadGlobal(root)
 	return err == nil && g.Channel
+}
+
+// 所属ごとの結の層の決まり（紡が起こすセッションへ渡す）。
+func layerRule(af affiliation) string {
+	root, _ := homeDir()
+	g, _ := loadGlobal(root)
+	layers := yuiLayers(g)
+	def, allowed := affLayers(&af, layers)
+	if allowed == nil && len(layers) <= 1 {
+		return ""
+	}
+	names := allowed
+	if names == nil {
+		for k := range layers {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+	}
+	return fmt.Sprintf("結は層に分かれている。この所属が使える層: %s。書くのは既定の層（%s）で、`tsumugi yui '<問い合わせ>'` がそこへつなぐ。"+
+		"ほかの層は `tsumugi yui --層 <名前> '<問い合わせ>'` で、要るときだけ読む。"+
+		"「%s」の層は使う人の決めたこと・好み・所属をまたぐ一般の決まりで、全所属が読む。仕事の中身（案件・顧客・現在地）をそこに書かない。",
+		strings.Join(names, "・"), def, personalLayer)
 }
