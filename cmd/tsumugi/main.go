@@ -50,6 +50,8 @@ const usage = `使い方: tsumugi <コマンド>
   install [--dry]     OS の定期実行に run を登録する（--dry は書くものを見るだけ）
   uninstall           その登録を外す
 
+  名前を変える, rename <いまの名前> <新しい名前>
+                      紡のセッションの名前を変える（同じ会話を引き継いで、新しい名前で起こし直す）
   設定そろえ, align-settings [--dry]
                       Claude Code のユーザー設定を基本の値（settings/claude-base.json）と比べ、紡.json で許した鍵だけ合わせる
   チャネル準備, channel-setup
@@ -92,6 +94,8 @@ func main() {
 		err = cmdYui(os.Args[2:])
 	case "channel":
 		err = cmdChannel()
+	case "名前を変える", "rename":
+		err = cmdRename(os.Args[2:])
 	case "設定そろえ", "align-settings":
 		err = cmdSettingsAlign(os.Args[2:])
 	case "チャネル準備", "channel-setup":
