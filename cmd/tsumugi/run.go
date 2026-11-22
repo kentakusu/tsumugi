@@ -76,8 +76,11 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 					// ★claude 側が設定を覚えていない（job の記録が無い・名前が自動で付け替わった。jobrecord.go）。
 					// フラグ無しだと名前もチャネルも権限モードも抜けて起きるので、最初と同じフラグを付けて --resume する。
 					// 記録が無ければ同じ ID のまま、記録が残っていれば写しで起きる（写しは record が名前で拾う）。
+					// ★指示を必ず付ける。フラグ付きの --resume は、指示が無いと会話を読み込まず「指示を待つ空の会話」として
+					// 起きる（2026-11-22 UseAI で useai-main が実測: jsonl が無く needs: "send a prompt to start"。
+					// 指示を付けると元の会話の中身を持って起きた）。最初の指示ではなく、付け直した知らせを渡す。
 					spec := s
-					spec.Prompt, spec.From = "", prev.SessionID
+					spec.Prompt, spec.From = refitNotice, prev.SessionID
 					act.Args, act.Refit = startArgs(af, spec), true
 				}
 			} else {
@@ -410,7 +413,8 @@ type delivery struct {
 	Affiliation, Name, Dir, SessionID, Prompt string
 	Running                                   *agent            // 動いていれば
 	Keys                                      map[string]string // 定時の鍵 → 発火時刻
-	// 常駐しないもので、まだ一度も起こしていない（SessionID が空）とき、最初の起動に使う。
+	// 所属とセッションの設定。常駐しないもので、まだ一度も起こしていない（SessionID が空）ときの最初の起動と、
+	// Claude Code が設定を覚えていないときの付け直し（deliverPrompt）に使う。
 	af   affiliation
 	spec sessionSpec
 }

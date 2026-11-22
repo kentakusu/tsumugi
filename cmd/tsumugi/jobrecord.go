@@ -19,6 +19,10 @@ import (
 	"path/filepath"
 )
 
+// 起こし直しで紡の設定を付け直すときに渡す知らせ（指示が無いと空の会話で起きるので、必ず付ける）。
+const refitNotice = "【紡】Claude Code が起こした時の設定を覚えていなかったので、紡の設定（名前・チャネル・権限モードなど）を付け直して起こし直しました。" +
+	"会話はそのまま続いています。続きの作業があれば続け、無ければ待機してください。"
+
 type jobRecord struct {
 	Name       string `json:"name"`
 	NameSource string `json:"nameSource"`

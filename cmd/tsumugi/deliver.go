@@ -129,7 +129,17 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 		time.Sleep(stopSettle) // 止まった直後に --resume すると写しになることがある
 	}
 	t0 := time.Now()
-	if _, err := runClaudeIn(d.Dir, "--bg", "--resume", d.SessionID, d.Prompt); err != nil {
+	args := []string{"--bg", "--resume", d.SessionID, d.Prompt}
+	if d.spec.Name != "" && !jobKeepsSettings(d.SessionID, d.Name) {
+		// ★Claude Code が起こした時の設定を覚えていない（jobrecord.go）。フラグ無しで渡すと、名前もチャネルも
+		// 権限モードも抜けたまま起き、定時・届けのたびにその形が続く（2026-11-22 Reatex で実測: stop したあと
+		// 17:17 の定時がこの道で同じ ID のまま起こし、run の「起こし直す」の付け直しに届かなかった）。
+		spec := d.spec
+		spec.Prompt, spec.From = d.Prompt, d.SessionID
+		args = startArgs(d.af, spec)
+		fmt.Fprint(w, "（Claude Code が設定を覚えていないので、紡の設定を付け直す）")
+	}
+	if _, err := runClaudeIn(d.Dir, args...); err != nil {
 		fmt.Fprintln(w, " … 失敗:", err)
 		return false, ""
 	}
@@ -276,7 +286,7 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 			for _, q := range keep {
 				ps = append(ps, "【届け "+q.Received+"】"+q.Prompt)
 			}
-			d := delivery{Affiliation: af.ID, Name: name, Dir: s.Dir, SessionID: prev.SessionID, Prompt: strings.Join(ps, "\n\n")}
+			d := delivery{Affiliation: af.ID, Name: name, Dir: s.Dir, SessionID: prev.SessionID, Prompt: strings.Join(ps, "\n\n"), af: af, spec: s}
 			if a, ok := newestRunning(all, name); ok {
 				d.Running = &a
 			}

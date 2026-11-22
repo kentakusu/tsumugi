@@ -96,6 +96,8 @@ func TestPlanOnDemand(t *testing.T) {
 // 最初の指示と定時の両方を付けて最初の起動をする。常駐で一度も起こしていないものは、今までどおり run の最初の起動に任せる。
 func TestScheduleOnDemand(t *testing.T) {
 	onDemandSetup(t)
+	// Claude Code が設定を覚えている会話（付け直しの場合は TestDeliverPromptRefit）
+	stubJobRecords(t, map[string]jobRecord{"s1": {Name: "od-old", NameSource: "user"}})
 	now := time.Date(2026, 11, 22, 9, 0, 0, 0, time.Local)
 	sc := []scheduleSpec{{Cron: "0 9 * * *", Prompt: "朝の巡回"}}
 	dir := t.TempDir()

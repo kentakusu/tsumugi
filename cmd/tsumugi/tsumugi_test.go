@@ -388,6 +388,8 @@ func TestWatch(t *testing.T) {
 }
 
 func TestDeliverQueue(t *testing.T) {
+	// Claude Code が設定を覚えている会話（付け直しの場合は TestDeliverPromptRefit）
+	stubJobRecords(t, map[string]jobRecord{"X": {Name: "s", NameSource: "user"}})
 	t.Setenv("TSUMUGI_MACHINE", "m")
 	resumeWait, stopSettle = 0, 0
 	defer func() { resumeWait, stopSettle = 15*time.Second, 3*time.Second }()

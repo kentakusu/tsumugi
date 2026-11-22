@@ -44,6 +44,50 @@ func TestPlanRefitWhenJobForgot(t *testing.T) {
 		if strings.Contains(args, "最初の指示") {
 			t.Fatalf("%s: 起こし直しに最初の指示を付けた: %s", name, args)
 		}
+		// 指示が無いと、フラグ付きの --resume は会話を読み込まず空の会話で起きる。最後の引数は付け直しの知らせ
+		if a.Args[len(a.Args)-1] != refitNotice {
+			t.Fatalf("%s: 付け直しの知らせを最後に付けていない: %s", name, args)
+		}
+	}
+}
+
+// 定時・届けで止まっているセッションへ渡すときも、Claude Code が設定を覚えていなければ紡のフラグを付け直す。
+// （run の「起こし直す」より先にこの道を通るので、ここが付け直さないと抜けたまま起き続ける）
+func TestDeliverPromptRefit(t *testing.T) {
+	onDemandSetup(t)
+	stubJobRecords(t, map[string]jobRecord{"s-keep": {Name: "keep", NameSource: "user"}})
+	af := affiliation{ID: "x"}
+	for _, c := range []struct {
+		name, id string
+		refit    bool
+	}{{"keep", "s-keep", false}, {"auto", "s-auto", true}} {
+		f := &fakeClaude{}
+		f.install(t)
+		spec := sessionSpec{Name: c.name, Prompt: "最初の指示", Permission: "bypassPermissions"}
+		d := delivery{Affiliation: "x", Name: c.name, SessionID: c.id, Prompt: "【定時】朝の巡回", af: af, spec: spec}
+		var out bytes.Buffer
+		if ok, _ := deliverPrompt(&out, d); !ok {
+			t.Fatalf("%s: 渡していない: %s", c.name, out.String())
+		}
+		bg := f.bg()
+		if len(bg) != 1 {
+			t.Fatalf("%s: 1 回起こすはず: %q", c.name, bg)
+		}
+		args := strings.Join(bg[0], " ")
+		if !c.refit {
+			if args != "--bg --resume s-keep 【定時】朝の巡回" {
+				t.Fatalf("覚えているならフラグ無しのはず（対照）: %s", args)
+			}
+			continue
+		}
+		for _, want := range []string{"-n auto", `"TSUMUGI_SESSION":"auto"`, "--permission-mode bypassPermissions", "--resume s-auto"} {
+			if !strings.Contains(args, want) {
+				t.Fatalf("付け直しに %q が無い: %s", want, args)
+			}
+		}
+		if !strings.HasSuffix(args, "【定時】朝の巡回") || strings.Contains(args, "最初の指示") {
+			t.Fatalf("渡すのは定時の指示だけのはず: %s", args)
+		}
 	}
 }
 
