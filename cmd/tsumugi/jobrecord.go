@@ -19,6 +19,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // 起こし直しで紡の設定を付け直すときに渡す知らせ（指示が無いと空の会話で起きるので、必ず付ける）。
@@ -124,6 +126,59 @@ var hasTranscript = func(sessionID string) bool {
 		f.Close()
 	}
 	return false
+}
+
+// Claude Code の daemon が立ち上がってから、この時間は止まったセッションを --resume しない。
+// ★立ち上がった直後（前のセッションを dead と数えた直後）にフラグ無しで --resume すると、続きでなく
+// 中身の無い新しい会話が起きる（2026-11-22 Reatex で実測: daemon start の 1 秒後の --resume b80362be が
+// 空の 19ed4d08 を起こし、78 秒後の同じ形の --resume は本物の b80362be を戻した）。
+// daemon は紡の run の最初の claude 呼び出しで立ち上がることがある（WSL を起こし直したあと）。
+var daemonSettle = 2 * time.Minute
+
+// daemon が最後に立ち上がった時刻（<Claude の設定の置き場>/daemon.log の「daemon start」の行）。テストで差し替える。
+var daemonStartedAt = readDaemonStartedAt
+
+func readDaemonStartedAt() (time.Time, bool) {
+	home, err := claudeHome()
+	if err != nil {
+		return time.Time{}, false
+	}
+	f, err := os.Open(filepath.Join(home, "daemon.log"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer f.Close()
+	// 末尾だけ読む（daemon.log は伸び続ける）
+	if fi, err := f.Stat(); err == nil && fi.Size() > 256*1024 {
+		f.Seek(fi.Size()-256*1024, io.SeekStart)
+	}
+	var last time.Time
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 64*1024), 1024*1024)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.Contains(line, "daemon start") || !strings.HasPrefix(line, "[") {
+			continue
+		}
+		if i := strings.Index(line, "]"); i > 1 {
+			if t, err := time.Parse(time.RFC3339Nano, line[1:i]); err == nil {
+				last = t
+			}
+		}
+	}
+	return last, !last.IsZero()
+}
+
+// daemon が立ち上がったばかりなら、あと何秒待てばよいか（0 なら待たない）。
+func daemonJustStarted(now time.Time) time.Duration {
+	t, ok := daemonStartedAt()
+	if !ok {
+		return 0
+	}
+	if left := t.Add(daemonSettle).Sub(now); left > 0 {
+		return left
+	}
+	return 0
 }
 
 // その会話を、フラグ無しの --resume で起こしても紡の設定が戻るか

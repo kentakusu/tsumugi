@@ -113,6 +113,13 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 			}
 		}
 	}
+	if d.Running == nil {
+		// 止まっているものを --resume で起こす道。daemon が立ち上がったばかりだと空の会話になる（jobrecord.go）。
+		if left := daemonJustStarted(time.Now()); left > 0 {
+			fmt.Fprintf(w, " … Claude Code が立ち上がったばかりなので次の回に（あと %d 秒は待つ）\n", int(left.Seconds())+1)
+			return false, ""
+		}
+	}
 	if d.Running != nil && d.Running.Status != "idle" {
 		fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
 		return false, ""

@@ -848,6 +848,8 @@ func TestYuiAskSendsSecretFirst(t *testing.T) {
 const testHelperEnv = "TSUMUGI_TEST_HELPER"
 
 func TestMain(m *testing.M) {
+	// この機の本物の daemon.log を読まない（立ち上がった直後だと試験の結果が揺れる）。読み方は TestReadDaemonStartedAt
+	daemonStartedAt = func() (time.Time, bool) { return time.Time{}, false }
 	switch os.Getenv(testHelperEnv) {
 	case "":
 	case "echo":

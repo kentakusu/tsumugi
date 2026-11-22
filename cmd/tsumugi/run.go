@@ -269,6 +269,10 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		// そのすぐ後だと、一覧にまだ出ていないだけのセッションへ --resume して写しを作る
 		// （2026-11-21 07:48 実測: 2.1.330 への更新直後に 2 つの写しができた）。起こし直す前に少し待って見直す。
 		if act.Verb == "起こし直す" && !dry {
+			if left := daemonJustStarted(time.Now()); left > 0 {
+				fmt.Fprintf(w, "%s/%s: Claude Code が立ち上がったばかりなので、起こし直しは次の回に（あと %d 秒は待つ）\n", act.Affiliation, act.Name, int(left.Seconds())+1)
+				continue
+			}
 			if _, back := waitRunningID(act.Name, states[act.Affiliation].Sessions[act.Name].SessionID, settleWait); back {
 				fmt.Fprintf(w, "%s/%s: 起こし直そうとしたら、自分で起きていた（Claude Code が起こし直した）\n", act.Affiliation, act.Name)
 				continue

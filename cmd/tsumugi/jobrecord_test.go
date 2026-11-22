@@ -171,6 +171,54 @@ func TestHasTranscriptFile(t *testing.T) {
 	}
 }
 
+// daemon.log の最後の「daemon start」の時刻を読む。
+func TestReadDaemonStartedAt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if _, ok := readDaemonStartedAt(); ok {
+		t.Fatal("daemon.log が無いのに時刻を返した")
+	}
+	log := "[2026-11-22T08:30:47.254Z] [supervisor] ─── daemon start ─── version=2.1.330 pid=1 origin=transient\n" +
+		"[2026-11-22T08:30:47.389Z] [bg] bg claimed-spare b80362be (shell)\n" +
+		"[2026-11-22T08:55:01.456Z] [supervisor] ─── daemon start ─── version=2.1.330 pid=2 origin=transient\n" +
+		"[2026-11-22T08:55:02.137Z] [bg] bg adopt: adopted=0 respawned=0 dead=1\n"
+	os.WriteFile(filepath.Join(dir, "daemon.log"), []byte(log), 0o600)
+	got, ok := readDaemonStartedAt()
+	want := time.Date(2026, 11, 22, 8, 55, 1, 456000000, time.UTC)
+	if !ok || !got.Equal(want) {
+		t.Fatalf("最後の起動時刻でない: %v %v", got, ok)
+	}
+}
+
+// daemon が立ち上がってから daemonSettle の間は、起こし直しも、止まっているものへの定時・届けもしない（次の回に）。
+// 過ぎていれば今までどおり（対照）。
+func TestWaitAfterDaemonStart(t *testing.T) {
+	onDemandSetup(t)
+	stubJobRecords(t, map[string]jobRecord{"s1": {Name: "s", NameSource: "user"}})
+	stubTranscripts(t, "s1")
+	old := daemonStartedAt
+	t.Cleanup(func() { daemonStartedAt = old })
+	for _, c := range []struct {
+		ago  time.Duration
+		wait bool
+	}{{10 * time.Second, true}, {5 * time.Minute, false}} {
+		daemonStartedAt = func() (time.Time, bool) { return time.Now().Add(-c.ago), true }
+		if got := daemonJustStarted(time.Now()) > 0; got != c.wait {
+			t.Fatalf("%v 前に立ち上がった: 待つ=%v のはず", c.ago, c.wait)
+		}
+		f := &fakeClaude{}
+		f.install(t)
+		var out bytes.Buffer
+		ok, _ := deliverPrompt(&out, delivery{Affiliation: "x", Name: "s", SessionID: "s1", Prompt: "【定時】x"})
+		if c.wait && (ok || len(f.bg()) != 0 || !strings.Contains(out.String(), "立ち上がったばかり")) {
+			t.Fatalf("立ち上がった直後に止まっているものを起こした: %v %q %s", ok, f.bg(), out.String())
+		}
+		if !c.wait && (!ok || len(f.bg()) != 1) {
+			t.Fatalf("落ち着いたあとは渡すはず（対照）: %v %q %s", ok, f.bg(), out.String())
+		}
+	}
+}
+
 // 動いているのに Claude Code 側の名前が付け替わったものだけを★で知らせる。
 func TestWarnLostSettings(t *testing.T) {
 	stubJobRecords(t, map[string]jobRecord{
