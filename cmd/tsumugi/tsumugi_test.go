@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -601,8 +602,19 @@ func TestStepStreamsLines(t *testing.T) {
 	}
 }
 
+// チャネルの試験でソケットを置く親。UNIX ソケットのパスは約 104〜108 バイトまでなので、
+// 長くなりがちな t.TempDir()（macOS は /var/folders/…）でなく短い所に置く。
+// ★Windows では "/tmp" は「いまのドライブの \tmp」になり、C: から流すと C:\tmp が無くて落ちる
+// （2026-11-22 実測・D: は D:\tmp が在って通っていた）。Windows は OS の一時フォルダ（ドライブに依らない）。
+func sockTempBase() string {
+	if runtime.GOOS == "windows" {
+		return os.TempDir()
+	}
+	return "/tmp"
+}
+
 func TestChannelDeliver(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "tsch")
+	dir, err := os.MkdirTemp(sockTempBase(), "tsch")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +643,7 @@ func TestChannelDeliver(t *testing.T) {
 }
 
 func TestChannelDoesNotStealLiveSocket(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "tsch")
+	dir, err := os.MkdirTemp(sockTempBase(), "tsch")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +757,7 @@ func TestLoadGlobalToleratesUnknownKey(t *testing.T) {
 }
 
 func TestChannelSelfHeals(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "tsch")
+	dir, err := os.MkdirTemp(sockTempBase(), "tsch")
 	if err != nil {
 		t.Fatal(err)
 	}
