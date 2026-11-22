@@ -102,6 +102,14 @@ func cmdAttach(arg string) error {
 	if err != nil {
 		return err
 	}
+	// tsumugi 止める --しばらく の印は、人が tsumugi a で起こしたら外す
+	if af, _, managed := findSpec(affs, name); managed {
+		if released, err := releaseHold(af, name); err != nil {
+			return err
+		} else if released {
+			fmt.Fprintf(os.Stderr, "%s の止めておく印を外しました\n", name)
+		}
+	}
 	all, err := listAllAgents()
 	if err != nil {
 		return err

@@ -207,69 +207,102 @@ func appendSession(path, name, dir, machine string) error {
 	return writeOrdered(path, doc)
 }
 
-// 一覧の 1 行。
-type listRow struct {
-	no                                          int
-	name, aff, state, id, claudeName, mach, dir string
-}
-
-// tsumugi l: 紡のセッション（控えの会話 ID で claude agents と突き合わせる）と、claude agents に出ている紡の外のものを全部並べる。
+// tsumugi l（2026-11-22 鈴木さん「claude agents と一覧は必ず同じに。紡を経由しなかったとしても」）:
+//
+//	上の段: claude agents の行を、同じ並び・同じ ID・同じ名前・同じ様子で全部出し、紡では何か（所属/セッション・前の会話・紡の外）を添える。
+//	        毎回 claude agents から作るので、claude を直接打った変更（claude rm・claude stop 等）もそのまま映る。
+//	下の段: 所属.json にあるのに claude agents に出ていないセッション（まだ起こしていない・claude rm で外された・よそのマシン）。
 func printListFull(w io.Writer, machine string, affs []affiliation, states map[string]affState, all []agent) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "番号\t名前\t所属\t実際\tID\tClaude での名前\tマシン\t作業フォルダ")
+	type ref struct {
+		no           int
+		aff, name    string
+		held         bool
+		resident     bool
+		here         bool
+		machine, dir string
+		cur          string
+	}
+	var refs []ref
 	n := 0
-	shown := map[string]bool{}
 	for _, af := range affs {
 		for _, s := range af.Sessions {
 			n++
-			state, id, cname, m := "止まっている", "-", "", machine
-			if !s.resident() {
-				state = "止まっている（必要なときに起こす）"
-			}
-			cur := states[af.ID].Sessions[s.Name].SessionID
-			if !s.here(machine) {
-				state, m = "（よそのマシン）", s.Machine
-			} else if a, ok := agentByID(all, cur); ok {
-				id, cname = a.ID, a.Name
-				if a.Pid > 0 {
-					state = a.Status
-				}
-				shown[a.SessionID] = true
-			} else if a, ok := newestRunning(all, s.Name); ok && cur == "" {
-				state, id, cname = a.Status, a.ID, a.Name
-				shown[a.SessionID] = true
-			} else if cur != "" {
-				id = short(cur)
-			} else if a, ok := newest(all, s.Name); ok {
-				id = a.ID
-			}
-			if cname != "" && cname != s.Name {
-				cname = "★" + cname
-			} else if cname != "" {
-				cname = "（同じ）"
-			}
-			fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", n, s.Name, af.ID, state, id, cname, m, s.Dir)
+			ss := states[af.ID].Sessions[s.Name]
+			refs = append(refs, ref{n, af.ID, s.Name, ss.Held, s.resident(), s.here(machine), s.Machine, s.Dir, ss.SessionID})
 		}
 	}
-	// claude agents に出ていて、紡のいまの会話ではないもの（前の会話・紡の外）
+	// 会話 ID → 紡のセッション（いまの会話）。控えが無いセッションは、同じ名前で動いているもの（無ければいちばん新しいもの）を当てる
+	current := map[string]int{}
+	for i, r := range refs {
+		if r.cur != "" {
+			current[r.cur] = i
+			continue
+		}
+		if !r.here {
+			continue
+		}
+		if a, ok := newestRunning(all, r.name); ok {
+			current[a.SessionID] = i
+		} else if a, ok := newest(all, r.name); ok {
+			current[a.SessionID] = i
+		}
+	}
 	own := owners(states)
-	var rest []agent
+	seen := map[int]bool{}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "番号\tClaude での名前\t実際\tID\t紡では\t作業フォルダ")
 	for _, a := range all {
-		if a.SessionID != "" && !shown[a.SessionID] {
-			rest = append(rest, a)
+		if a.SessionID == "" {
+			continue
 		}
-	}
-	sort.Slice(rest, func(i, j int) bool { return rest[i].StartedAt > rest[j].StartedAt })
-	for _, a := range rest {
-		aff, label := "（紡の外）", a.Name
-		if o, ok := own[a.SessionID]; ok {
-			aff, label = o.aff, o.name+"（前の会話）"
+		no, role := "-", "（紡の外）"
+		if i, ok := current[a.SessionID]; ok {
+			r := refs[i]
+			seen[i] = true
+			no, role = fmt.Sprint(r.no), r.aff+"/"+r.name
+			if a.Name != r.name {
+				role += " ★名前が違う"
+			}
+		} else if o, ok := own[a.SessionID]; ok {
+			role = o.aff + "/" + o.name + "（前の会話）"
 		}
 		state := agentLabel(a)
 		if a.Kind == "interactive" {
 			state += "・画面"
 		}
-		fmt.Fprintf(tw, "-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", label, aff, state, a.ID, a.Name, machine, a.Cwd)
+		if i, ok := current[a.SessionID]; ok && refs[i].held && a.Pid <= 0 {
+			state += "・止めてある（tsumugi a で起こす）"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", no, quoteName(a.Name), state, a.ID, role, a.Cwd)
+	}
+	tw.Flush()
+	var missing []ref
+	for i, r := range refs {
+		if !seen[i] {
+			missing = append(missing, r)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\n（claude の一覧に無い紡のセッション）")
+	tw = tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "番号\t名前\t所属\t実際\t控えの ID\tマシン\t作業フォルダ")
+	for _, r := range missing {
+		state, m, id := "まだ起こしていない", machine, "-"
+		if r.cur != "" {
+			state, id = "claude の一覧に無い（tsumugi a で起こす）", short(r.cur)
+		}
+		if !r.resident && r.cur == "" {
+			state = "止まっている（必要なときに起こす）"
+		}
+		if r.held {
+			state = "止めてある（tsumugi a で起こす）"
+		}
+		if !r.here {
+			state, m = "（よそのマシン）", r.machine
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", r.no, r.name, r.aff, state, id, m, r.dir)
 	}
 	tw.Flush()
 }
@@ -322,6 +355,9 @@ func printTree(w io.Writer, machine string, affs []affiliation, states map[strin
 			kind := "常駐"
 			if !s.resident() {
 				kind = "常駐しない"
+			}
+			if states[af.ID].Sessions[s.Name].Held {
+				kind += "・止めてある（tsumugi a で起こす）"
 			}
 			fmt.Fprintf(w, "%s%s  [%s・%s]  %s\n", br, s.Name, kind, s.machineLabel(machine), s.Dir)
 			ss := states[af.ID].Sessions[s.Name]

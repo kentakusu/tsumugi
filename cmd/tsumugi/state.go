@@ -26,6 +26,9 @@ type sessionState struct {
 	// 前の会話: 紡がこのセッションとして控えていた、いまより前の会話 ID（新しく立て直した・写しになった等）。
 	// tsumugi tree が並べ、claude agents の Completed に残っていれば紡が claude rm で片付ける（lineage.go）。
 	Previous []prevSession `json:"前の会話,omitempty"`
+	// tsumugi 止める --しばらく: 印があるあいだ、run・定時・届けで起こさない（届けは溜めておく）。tsumugi a で外す。
+	Held   bool   `json:"止めておく,omitempty"`
+	HeldAt string `json:"止めた,omitempty"`
 }
 
 type prevSession struct {

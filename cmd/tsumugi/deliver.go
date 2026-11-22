@@ -333,6 +333,10 @@ func deliverQueue(w io.Writer, affs []affiliation, states map[string]affState, a
 				continue
 			}
 			prev := states[af.ID].Sessions[name]
+			if prev.Held {
+				fmt.Fprintf(w, "%s/%s: 届け %d 件 … 止めておく印があるので溜めておく（tsumugi a で起こすと渡る）\n", af.ID, name, len(keep))
+				continue
+			}
 			if prev.SessionID == "" && s.resident() {
 				// 常駐するものは、run が最初の指示を付けて起こしてから渡す
 				fmt.Fprintf(w, "%s/%s: 届け %d 件 … まだ一度も起こしていないので次の回に\n", af.ID, name, len(keep))

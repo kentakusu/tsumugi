@@ -200,14 +200,15 @@ func TestInstallFiles(t *testing.T) {
 
 func TestListAndOnly(t *testing.T) {
 	all := []agent{
-		{Name: "a", ID: "old", StartedAt: 1},
-		{Name: "a", ID: "new", StartedAt: 2, Pid: 9, Status: "idle"},
-		{Name: "b", ID: "b1", StartedAt: 1},
+		{Name: "a", ID: "old", SessionID: "A-OLD", StartedAt: 1},
+		{Name: "a", ID: "new", SessionID: "A-NEW", StartedAt: 2, Pid: 9, Status: "idle"},
+		{Name: "b", ID: "b1", SessionID: "B1", StartedAt: 1},
 	}
 	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "a"}, {Name: "b"}}}}
 	var buf bytes.Buffer
 	printList(&buf, affs, all)
-	if out := buf.String(); !strings.Contains(out, "new") || !strings.Contains(out, "止まっている") {
+	// 控えが無ければ、同じ名前で動いているもの（a は new）・いちばん新しいもの（b は b1）を紡のセッションとして出す
+	if out := buf.String(); !regexpRow(out, "1", "a", "idle", "new", "x/a") || !regexpRow(out, "2", "b", "止まっている", "b1", "x/b") || !regexpRow(out, "-", "a", "止まっている", "old", "（紡の外）") {
 		t.Fatalf("list が違う:\n%s", out)
 	}
 	// 1 本だけ起こすときは、ほかのセッションを止めない
@@ -216,6 +217,23 @@ func TestListAndOnly(t *testing.T) {
 	if len(acts) != 1 || acts[0].Name != "b" || acts[0].Verb != "起こし直す" {
 		t.Fatalf("絞ったときのやることが違う: %+v", acts)
 	}
+}
+
+// 一覧の 1 行に、並べた語が順に（空白で区切られて）入っているか。
+func regexpRow(out string, words ...string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		i := 0
+		for _, x := range f {
+			if i < len(words) && x == words[i] {
+				i++
+			}
+		}
+		if i == len(words) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestResolveName(t *testing.T) {

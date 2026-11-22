@@ -174,10 +174,11 @@ func TestListFull(t *testing.T) {
 	printListFull(&b, "m", affs, states, all)
 	out := b.String()
 	lines := strings.Split(out, "\n")
-	if !strings.Contains(lines[1], "now00000") || !strings.Contains(lines[1], "★lw-monitoring-patrol") || !strings.Contains(lines[1], "idle") {
+	// claude agents の行を同じ並びで出し、控えの会話 ID で紡のセッションに当てる（名前が違えば★）
+	if !strings.Contains(lines[1], "now00000") || !strings.Contains(lines[1], "lw-monitoring-patrol") || !strings.Contains(lines[1], "x/main ★名前が違う") || !strings.Contains(lines[1], "idle") {
 		t.Fatalf("控えの会話 ID で突き合わせていない:\n%s", out)
 	}
-	for _, want := range []string{"main（前の会話）", "prev0000", "（紡の外）", "my-work", "busy・画面", "other000"} {
+	for _, want := range []string{"x/main（前の会話）", "prev0000", "（紡の外）", "my-work", "busy・画面", "other000", "（claude の一覧に無い紡のセッション）", "止まっている（必要なときに起こす）"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("%q が出ていない:\n%s", want, out)
 		}

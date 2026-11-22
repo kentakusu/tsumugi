@@ -70,6 +70,9 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 			if !s.resident() {
 				continue // 常駐しない: 起こすのは定時・届けが来たときだけ（deliverSchedules・deliverQueue）
 			}
+			if st.Sessions[s.Name].Held {
+				continue // tsumugi 止める --しばらく: tsumugi a で外すまで起こさない
+			}
 			act := action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}
 			if prev, ok := st.Sessions[s.Name]; ok && prev.SessionID != "" {
 				act.Verb = "起こし直す"
@@ -496,6 +499,9 @@ func dueDeliveries(machine string, affs []affiliation, states map[string]affStat
 			prev, ok := st.Sessions[s.Name]
 			if (!ok || prev.SessionID == "") && s.resident() {
 				continue // まだ一度も起こしていない（最初の起動に任せる）
+			}
+			if prev.Held {
+				continue // tsumugi 止める --しばらく: 定時でも起こさない（その回の定時は渡さない）
 			}
 			// 常駐しないものは、一度も起こしていなくても渡す（SessionID が空なら、最初の指示と一緒に起こす）
 			d := delivery{Affiliation: af.ID, Name: s.Name, Dir: s.Dir, SessionID: prev.SessionID, Keys: map[string]string{}, af: af, spec: s}

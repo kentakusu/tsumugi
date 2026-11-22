@@ -218,10 +218,11 @@ func TestListAndWatchOnDemand(t *testing.T) {
 	}}}
 	var b bytes.Buffer
 	printListOn(&b, "m", affs, nil)
-	lines := strings.Split(b.String(), "\n")
-	if !strings.Contains(lines[1], "止まっている（必要なときに起こす）") || strings.Contains(lines[2], "必要なとき") || !strings.Contains(lines[2], "止まっている") {
+	// claude の一覧に無い段に、常駐しないものは「必要なときに起こす」、常駐で一度も起こしていないものは「まだ起こしていない」
+	if !regexpRow(b.String(), "1", "od", "x", "止まっている（必要なときに起こす）") || !regexpRow(b.String(), "2", "res", "x", "まだ起こしていない") {
 		t.Fatalf("一覧の表示が違う:\n%s", b.String())
 	}
+	lines := strings.Split(b.String(), "\n")
 	b.Reset()
 	printStatus(&b, compare(affs, nil))
 	lines = strings.Split(b.String(), "\n")

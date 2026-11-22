@@ -54,6 +54,10 @@ const usage = `使い方: tsumugi <コマンド>
   名前を変える, rename <いまの名前> <新しい名前>
                       紡のセッションの名前を変える（同じ会話を引き継いで、新しい名前で起こし直す）
   新しく, renew <名前>  同じ名前のまま、新しい会話で最初の指示から始め直す（前の会話は tree に残る）
+  止める, stop <名前|番号> [--しばらく] [--強制]
+                      控えの会話を止める（控えは残る）。--しばらく は tsumugi a で起こすまで、run・定時・届けで起こさない
+  外す, rm <名前|番号> [--強制]
+                      紡の一覧から消す（止めて claude rm し、所属.json と控えから消す。会話の記録は残る）
   設定そろえ, align-settings [--dry]
                       Claude Code のユーザー設定を基本の値（settings/claude-base.json）と比べ、紡.json で許した鍵だけ合わせる
   チャネル準備, channel-setup
@@ -98,6 +102,10 @@ func main() {
 		err = cmdChannel()
 	case "名前を変える", "rename":
 		err = cmdRename(os.Args[2:])
+	case "止める", "stop":
+		err = cmdStop(os.Args[2:])
+	case "外す", "rm":
+		err = cmdRemove(os.Args[2:])
 	case "新しく", "renew":
 		err = cmdRenew(os.Args[2:])
 	case "tree", "木":
