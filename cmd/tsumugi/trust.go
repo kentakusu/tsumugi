@@ -43,7 +43,7 @@ func claudeConfigPath() (string, error) {
 //   - Linux・macOS: 絶対パス（UseAI の ~/.claude.json で確かめた: "/home/…"）
 //   - Windows: 区切りを "/" にした形（"D:/Users/kenta/…"）。Windows の ~/.claude.json で、
 //     Claude Code が自分で書いた項（hasTrustDialogAccepted:false のもの）がこの形だった（2026-11-22 WSL から読んだ）。
-//     ★Windows の実機で信頼が効くかは tsumugi-windows に確かめてもらう。
+//     この形で信頼が効き、--bg が起きることを Windows 実機で確かめた（tsumugi-windows・PR #1 のコメント）。
 func trustKey(dir, goos string) string {
 	if goos == "windows" {
 		return strings.ReplaceAll(dir, `\`, "/")
@@ -61,7 +61,9 @@ func matchKey(projects *oobj, want, goos string) string {
 	}
 	if goos == "windows" {
 		for _, k := range projects.keys {
-			// "\" の形の鍵は Claude Code が読む形ではないので選ばない（そこに書いても効かない）
+			// "\" の形の鍵は選ばない。紡が書くのは、Claude Code が自分で作る "/" の形だけ。
+			// （"/" の形で信頼が効くことは Windows 実機で確かめた・PR #1。"\" の形が今の版で効くかは測っていない。
+			//   Windows の実物には、人が許した項が "\" の形で true・同じフォルダの "/" の形が false という組がある）
 			if !strings.Contains(k, `\`) && strings.EqualFold(k, want) {
 				return k
 			}
