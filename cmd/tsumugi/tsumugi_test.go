@@ -784,6 +784,8 @@ func TestYuiAskSendsSecretFirst(t *testing.T) {
 				io.ReadFull(r, b)
 				qs = append(qs, string(b))
 				if i == 0 && !pass {
+					// デーモンの返した文に合言葉の値が混ざっていても、紡は値を出さずに文だけ添える
+					fmt.Fprint(d, `{"kind":"error","text":"知らない言葉です: 合言葉 ひみつひみつひみつひみつ"}`+"\n")
 					fmt.Fprint(d, `{"kind":"end","rc":2}`+"\n")
 					break
 				}
@@ -803,6 +805,10 @@ func TestYuiAskSendsSecretFirst(t *testing.T) {
 		}
 		if !pass && (ok || err == nil || len(qs) != 1) {
 			t.Fatalf("合言葉が通らないのに続けた: %v %v %q", ok, err, qs)
+		}
+		// 「値が違う」と「この口は合言葉を見ない」を人が見分けられるよう、結の返した文を添える（値は伏せる）
+		if !pass && (!strings.Contains(err.Error(), "知らない言葉です") || strings.Contains(err.Error(), "ひみつ")) {
+			t.Fatalf("結の返した文を添えていない、または合言葉の値を出した: %v", err)
 		}
 		if strings.Contains(out.String(), "ひみつ") {
 			t.Fatal("合言葉を出力に出した")

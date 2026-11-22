@@ -260,6 +260,7 @@ type yuiLine struct {
 	Kind string `json:"kind"`
 	RC   *int   `json:"rc"`
 	Cut  bool   `json:"cut"` // 返りが上限で打ち切られた（これで全部ではない）
+	Text string `json:"text"`
 }
 
 // 1 本の接続で、名乗ってから問い合わせを順に投げる。返りの行はそのまま w へ。
@@ -267,6 +268,7 @@ type yuiLine struct {
 func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []string) (bool, error) {
 	r := bufio.NewReader(conn)
 	ok := true
+	lastErr := "" // 直近の error の行の文（画面に出さない問い合わせでも、失敗の説明に使う）
 	send := func(q string, echo bool) error {
 		if _, err := fmt.Fprintf(conn, "%d\n%s", len(q), q); err != nil {
 			return err
@@ -279,6 +281,9 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []stri
 			var l yuiLine
 			if json.Unmarshal([]byte(line), &l) != nil {
 				return fmt.Errorf("読めない返りです: %q", line)
+			}
+			if l.Kind == "error" {
+				lastErr = l.Text
 			}
 			if echo || (l.Kind == "end" && l.RC != nil && *l.RC != 0) {
 				io.WriteString(w, line)
@@ -302,6 +307,12 @@ func yuiAsk(conn io.ReadWriter, w io.Writer, secret, name string, queries []stri
 			return false, fmt.Errorf("合言葉の返りがありません（違うと、その場で切られます）: %w", err)
 		}
 		if !ok {
+			// ★結の返した文を添える。「値が違う」と「この口は合言葉を見ない」（loopback の口に送った等）が、
+			// 文を捨てると同じ「通りません」になり、正しい値を疑うことになる（2026-11-22 Reatex の層で実際に起きた）。
+			// 紡は口の種類を判断しない。文に値が混ざっていても出さない。
+			if lastErr != "" {
+				return false, fmt.Errorf("合言葉が通りません（結の返り: %s）", strings.ReplaceAll(lastErr, secret, "＊＊＊"))
+			}
 			return false, fmt.Errorf("合言葉が通りません")
 		}
 	}
