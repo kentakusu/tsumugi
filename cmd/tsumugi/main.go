@@ -38,6 +38,7 @@ const usage = `使い方: tsumugi <コマンド>
   run [--dry]         望む状態に寄せる（--dry はやることを出すだけ）
   list, l             紡のセッションを番号・名前で並べる（claude agents に出ているものは紡の外のものも全部出す）
   tree, 木            セッションごとに、いまの会話と前の会話を木の形で並べる（紡の外は作業フォルダごと）
+  定時, schedules     所属.json の定時を並べる（いつ・次に届く・最後に届けた・止めてあれば届かない）
   attach, a <名前|番号|ID>
                       開く（止まっていれば同じ会話のまま起こしてから）
   届ける, send <名前> [指示…]
@@ -75,7 +76,7 @@ func main() {
 	}
 	var err error
 	// 知らない引数は黙って捨てない（所属.json の知らないキーと同じ考え。2026-11-17 Reatex の指摘）
-	extra := map[string]int{"status": 0, "list": 0, "l": 0, "tree": 0, "木": 0, "run": 1, "install": 1, "uninstall": 1, "version": 0, "--version": 0, "-v": 0, "版": 0}
+	extra := map[string]int{"status": 0, "list": 0, "l": 0, "tree": 0, "木": 0, "定時": 0, "schedules": 0, "run": 1, "install": 1, "uninstall": 1, "version": 0, "--version": 0, "-v": 0, "版": 0}
 	if n, ok := extra[os.Args[1]]; ok {
 		rest := os.Args[2:]
 		if len(rest) > n || (len(rest) == 1 && rest[0] != "--dry") {
@@ -103,6 +104,8 @@ func main() {
 		err = cmdChannel()
 	case "名前を変える", "rename":
 		err = cmdRename(os.Args[2:])
+	case "定時", "schedules":
+		err = cmdSchedules()
 	case "止める", "stop":
 		err = cmdStop(os.Args[2:])
 	case "外す", "rm":
