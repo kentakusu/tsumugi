@@ -62,6 +62,10 @@ func lockNamed(root, name string, wait time.Duration) (func(), error) {
 			os.Remove(p) // 古い錠を奪う
 			continue
 		}
+		if b, err := os.ReadFile(p); err == nil && !lockHolderAlive(string(b)) {
+			os.Remove(p) // 持ち主のプロセスがもう無い（WSL を起こし直したあとなど）。奪う
+			continue
+		}
 		if time.Now().After(end) {
 			return nil, fmt.Errorf("錠 %s が取れません（ほかの run・届けるが動いている）", p)
 		}

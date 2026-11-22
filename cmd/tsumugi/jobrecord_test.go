@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -275,6 +276,44 @@ func TestWaitAfterDaemonStart(t *testing.T) {
 			t.Fatalf("落ち着いたあとは渡すはず（対照）: %v %q %s", ok, f.bg(), out.String())
 		}
 	}
+}
+
+// 錠の持ち主が落ちたか（Linux は /proc/<pid>/cmdline で見る）。
+func TestLockHolderAlive(t *testing.T) {
+	dir := t.TempDir()
+	old := procCmdline
+	t.Cleanup(func() { procCmdline = old })
+	procCmdline = func(pid int) string { return filepath.Join(dir, fmt.Sprint(pid)) }
+	os.WriteFile(filepath.Join(dir, "100"), []byte("/home/u/.local/bin/tsumugi\x00run\x00"), 0o600)
+	os.WriteFile(filepath.Join(dir, "200"), []byte("/usr/bin/bash\x00"), 0o600)
+	for _, c := range []struct {
+		goos, content string
+		alive         bool
+	}{
+		{"linux", "100 2026-11-22T19:19:27+09:00", true},  // 紡として動いている
+		{"linux", "200 2026-11-22T19:19:27+09:00", false}, // pid が別のプロセスに使い回された
+		{"linux", "300 2026-11-22T19:19:27+09:00", false}, // プロセスが無い（WSL を起こし直したあと）
+		{"linux", "", true},        // 読めない中身は分からない＝動いているとみなす
+		{"windows", "300 x", true}, // ほかの土台は印の時刻に任せる
+	} {
+		if got := lockHolderAliveOn(c.goos, c.content); got != c.alive {
+			t.Fatalf("%s %q: %v のはず", c.goos, c.content, c.alive)
+		}
+	}
+}
+
+// 持ち主が落ちた錠は、印が新しくてもすぐ奪う（Linux のときだけ。ここではプロセスの見方を差し替えて試す）。
+func TestLockStealsDeadHolder(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux の /proc で見る分岐（ほかの土台は TestLockHolderAlive で見る）")
+	}
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, lockFile), []byte("999999 2026-11-22T19:19:27+09:00\n"), 0o600)
+	unlock, err := lockHome(dir, 0)
+	if err != nil {
+		t.Fatalf("落ちた持ち主の錠を奪わない: %v", err)
+	}
+	unlock()
 }
 
 // 紡の設定を持つ job の記録（--settings に紡の env が入っている）。
