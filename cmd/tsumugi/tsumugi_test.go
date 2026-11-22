@@ -125,7 +125,19 @@ func TestParseAgentsBroken(t *testing.T) {
 	}
 }
 
+// job の記録の読み方を差し替える（名前 → 記録。無ければ「記録が無い」）。
+func stubJobRecords(t *testing.T, recs map[string]jobRecord) {
+	t.Helper()
+	old := readJobRecord
+	t.Cleanup(func() { readJobRecord = old })
+	readJobRecord = func(id string) (jobRecord, bool) {
+		j, ok := recs[id]
+		return j, ok
+	}
+}
+
 func TestPlan(t *testing.T) {
+	stubJobRecords(t, map[string]jobRecord{"s-old": {Name: "a-old", NameSource: "user"}})
 	all := []agent{
 		{Name: "a-run", Pid: 1, SessionID: "s-run", ID: "s-run"},
 		{Name: "a-old", SessionID: "s-old"},                    // 止まっている

@@ -26,6 +26,7 @@ type action struct {
 	Dir         string
 	Args        []string
 	Trust       bool // 起こす直前に作業フォルダを信頼済みにする（所属.json の「信頼する」）
+	Refit       bool // 起こし直すが、claude 側が設定を覚えていないので、紡のフラグを付け直す
 }
 
 // 突き合わせて、やることを決める（claude は呼ばない）。
@@ -67,8 +68,18 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 			}
 			act := action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}
 			if prev, ok := st.Sessions[s.Name]; ok && prev.SessionID != "" {
-				// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
-				act.Verb, act.Args = "起こし直す", []string{"--bg", "--resume", prev.SessionID}
+				act.Verb = "起こし直す"
+				if jobKeepsSettings(prev.SessionID, s.Name) {
+					// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
+					act.Args = []string{"--bg", "--resume", prev.SessionID}
+				} else {
+					// ★claude 側が設定を覚えていない（job の記録が無い・名前が自動で付け替わった。jobrecord.go）。
+					// フラグ無しだと名前もチャネルも権限モードも抜けて起きるので、最初と同じフラグを付けて --resume する。
+					// 記録が無ければ同じ ID のまま、記録が残っていれば写しで起きる（写しは record が名前で拾う）。
+					spec := s
+					spec.Prompt, spec.From = "", prev.SessionID
+					act.Args, act.Refit = startArgs(af, spec), true
+				}
 			} else {
 				act.Verb, act.Args = "起こす", startArgs(af, s)
 				act.Trust = s.Trust
@@ -239,6 +250,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			}
 		}
 	}
+	warnLostSettings(w, machine, affs, states, all)
 	acts := skipResumed(plan(affs, states, all))
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
@@ -269,6 +281,9 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			}
 		}
 		fmt.Fprintf(w, "%s/%s: %s", act.Affiliation, act.Name, act.Verb)
+		if act.Refit {
+			fmt.Fprint(w, "（Claude Code が設定を覚えていないので、紡の設定を付け直す）")
+		}
 		if dry {
 			fmt.Fprintf(w, "（しない）claude %q\n", act.Args)
 			continue
