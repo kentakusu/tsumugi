@@ -16,6 +16,7 @@ type row struct {
 	State       string // 実際の状態。動いていなければ空
 	Kind        string
 	Dir         string
+	OnDemand    bool // 常駐しない（止まっていて当たり前）
 }
 
 // 突き合わせる。セッション名で対応を取る。
@@ -28,7 +29,7 @@ func compare(affs []affiliation, as []agent) []row {
 	claimed := map[string]bool{}
 	for _, af := range affs {
 		for _, s := range af.Sessions {
-			r := row{Affiliation: af.ID, Name: s.Name, Want: true, Dir: s.Dir}
+			r := row{Affiliation: af.ID, Name: s.Name, Want: true, Dir: s.Dir, OnDemand: !s.resident()}
 			if a, ok := running[s.Name]; ok {
 				r.State, r.Kind = a.Status, a.Kind
 				claimed[s.Name] = true
@@ -55,7 +56,9 @@ func printStatus(w io.Writer, rows []row) {
 		if aff == "" {
 			aff, want = "（所属なし）", "-"
 		}
-		if state == "" {
+		if state == "" && r.OnDemand {
+			state, kind = "止まっている（必要なときに起こす）", "-"
+		} else if state == "" {
 			state, kind = "★動いていない", "-"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", aff, r.Name, want, state, kind, r.Dir)

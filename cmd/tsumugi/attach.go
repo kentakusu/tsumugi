@@ -25,6 +25,9 @@ func printListOn(w io.Writer, machine string, affs []affiliation, all []agent) {
 		for _, s := range af.Sessions {
 			n++
 			state, id, m := "止まっている", "-", machine
+			if !s.resident() {
+				state = "止まっている（必要なときに起こす）"
+			}
 			if !s.here(machine) {
 				state, m = "（よそのマシン）", s.Machine
 			} else if a, ok := newestRunning(all, s.Name); ok {
@@ -144,7 +147,9 @@ func cmdAttach(arg string) error {
 }
 
 // 所属を 1 本のセッションだけに絞る（ほかのセッションを止めないよう、控えもその 1 本ぶんだけ扱う）。
+// 人が名前を指して起こす（開く・名前を変える）ときに使うので、常駐しないものも起こす。
 func onlySession(af affiliation, s sessionSpec) affiliation {
+	s.Resident = nil
 	af.Sessions = []sessionSpec{s}
 	af.only = true
 	return af

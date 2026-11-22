@@ -62,6 +62,9 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 			if _, ok := running[s.Name]; ok {
 				continue
 			}
+			if !s.resident() {
+				continue // 常駐しない: 起こすのは定時・届けが来たときだけ（deliverSchedules・deliverQueue）
+			}
 			act := action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}
 			if prev, ok := st.Sessions[s.Name]; ok && prev.SessionID != "" {
 				// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
@@ -392,6 +395,9 @@ type delivery struct {
 	Affiliation, Name, Dir, SessionID, Prompt string
 	Running                                   *agent            // 動いていれば
 	Keys                                      map[string]string // 定時の鍵 → 発火時刻
+	// 常駐しないもので、まだ一度も起こしていない（SessionID が空）とき、最初の起動に使う。
+	af   affiliation
+	spec sessionSpec
 }
 
 // いま届けるべき定時を選ぶ（claude は呼ばない）。
@@ -404,10 +410,11 @@ func dueDeliveries(machine string, affs []affiliation, states map[string]affStat
 				continue
 			}
 			prev, ok := st.Sessions[s.Name]
-			if !ok || prev.SessionID == "" {
+			if (!ok || prev.SessionID == "") && s.resident() {
 				continue // まだ一度も起こしていない（最初の起動に任せる）
 			}
-			d := delivery{Affiliation: af.ID, Name: s.Name, Dir: s.Dir, SessionID: prev.SessionID, Keys: map[string]string{}}
+			// 常駐しないものは、一度も起こしていなくても渡す（SessionID が空なら、最初の指示と一緒に起こす）
+			d := delivery{Affiliation: af.ID, Name: s.Name, Dir: s.Dir, SessionID: prev.SessionID, Keys: map[string]string{}, af: af, spec: s}
 			var prompts []string
 			for _, sc := range s.Schedules {
 				due := sc.lastDue(now)
@@ -447,7 +454,13 @@ func deliverSchedules(w io.Writer, affs []affiliation, states map[string]affStat
 			}
 			continue
 		}
-		ok, newID := deliverPrompt(w, d)
+		var ok bool
+		var newID string
+		if d.SessionID == "" {
+			newID, ok = startFresh(w, d.af, d.spec, d.Prompt)
+		} else {
+			ok, newID = deliverPrompt(w, d)
+		}
 		if !ok {
 			continue
 		}
