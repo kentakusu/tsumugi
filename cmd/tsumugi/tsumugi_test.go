@@ -810,6 +810,23 @@ func TestYuiAskSendsSecretFirst(t *testing.T) {
 	}
 }
 
+// testHelperEnv が立っていたら、テストのバイナリは試験を走らせず小さな道具として振る舞う。
+// 外のコマンド（echo・sh）は土台によって在ったり無かったりするので、子プロセスの試験はこれを呼ぶ。
+const testHelperEnv = "TSUMUGI_TEST_HELPER"
+
+func TestMain(m *testing.M) {
+	switch os.Getenv(testHelperEnv) {
+	case "":
+	case "echo":
+		fmt.Println(strings.Join(os.Args[1:], " "))
+		os.Exit(0)
+	default:
+		fmt.Fprintln(os.Stderr, "知らない helper:", os.Getenv(testHelperEnv))
+		os.Exit(2)
+	}
+	os.Exit(m.Run())
+}
+
 func TestYuiSecretSources(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TSUMUGI_HOME", dir)
@@ -821,7 +838,10 @@ func TestYuiSecretSources(t *testing.T) {
 	if s, err := yuiSecret(); err != nil || s != "abcdefghijklmnopq" {
 		t.Fatalf("ファイルから読めない: %q %v", s, err)
 	}
-	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x","合言葉コマンド":["echo","zyxwvutsrqponmlkj"]}}`), 0o600)
+	// ★echo は Windows では実行ファイルでなくシェルの組み込みなので使わない。テストのバイナリ自身を呼ぶ（TestMain の helper）
+	t.Setenv(testHelperEnv, "echo")
+	cmdj, _ := json.Marshal([]string{os.Args[0], "zyxwvutsrqponmlkj"})
+	os.WriteFile(filepath.Join(dir, globalFile), []byte(`{"結":{"アドレス":"x","合言葉コマンド":`+string(cmdj)+`}}`), 0o600)
 	if s, err := yuiSecret(); err != nil || s != "zyxwvutsrqponmlkj" {
 		t.Fatalf("コマンドから読めない: %q %v", s, err)
 	}
