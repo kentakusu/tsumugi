@@ -217,9 +217,19 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	// daemon は run の最初の claude 呼び出しで立ち上がることがあり（WSL を起こし直したあと）、その直後は
 	// 止まった会話を「動いている」と返したり、--resume が空の会話や設定の無い写しを作ったりする
 	// （2026-11-22 Reatex で実測: daemon start の 0.6 秒後に、動いている扱いの道から設定の無い写しができた）。
+	// 1 本だけ扱う回（tsumugi a・名前を変える）は人が待っているので、何もせずに終わらず、落ち着くまで待つ
+	// （何も動いていない機では、tsumugi a の最初の claude 呼び出しで daemon が立ち上がるので、いつもここに当たる）。
+	only := onlyMode(affs)
 	if left := daemonJustStarted(time.Now()); left > 0 && !dry {
-		fmt.Fprintf(w, "Claude Code が立ち上がったばかりなので、この回は何もしません（あと %d 秒は待つ）\n", int(left.Seconds())+1)
-		return nil
+		if !only {
+			fmt.Fprintf(w, "Claude Code が立ち上がったばかりなので、この回は何もしません（あと %d 秒は待つ）\n", int(left.Seconds())+1)
+			return nil
+		}
+		fmt.Fprintf(w, "Claude Code が立ち上がったばかりなので、落ち着くまで %d 秒待ちます…\n", int(left.Seconds())+1)
+		waitDaemonSettle(left)
+		if all, err = listAllAgents(); err != nil {
+			return err
+		}
 	}
 	// 届け待ちと定時を先に渡す（止まっているものは、指示を付けて起こすので、下の「起こし直す」と重ならない）。
 	queuedDone, err := deliverQueue(w, affs, states, all, time.Now(), dry)
@@ -257,7 +267,12 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	// 動いているものを配下に揃える（手で起こしたもの・紡の設定が抜けたもの。同じ会話 ID のまま付け直す）。
 	// 所属.json に無い名前で動いている背景セッション（手で起こしたもの）を、その機の所属に「常駐しない」で足す（lineage.go）。
 	// 足したものは、すぐ下の adoptRunning が空いているときに紡の設定で付け直す。
-	adopted := adoptUnknown(w, machine, affs, states, all, dry)
+	// ★1 本だけ扱う回（only）は、所属.json の一部しか見ていないので、紡の外のものを足したり、Completed を片付けたりしない
+	// （ほかの所属で動いているセッションを「紡の外」と見て、この所属に足してしまう）。
+	adopted := false
+	if !only {
+		adopted = adoptUnknown(w, machine, affs, states, all, dry)
+	}
 	if (adoptRunning(w, machine, affs, states, all, dry) || adopted) && !dry {
 		for _, af := range affs {
 			if err := saveState(af, states[af.ID]); err != nil {
@@ -270,7 +285,7 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		}
 	}
 	// claude agents の Completed のうち、紡が過去に管理していたもの（前の会話・同じ名前の古い会話）を片付ける（lineage.go）。
-	if cleanupCompleted(w, machine, affs, states, all, dry) && !dry {
+	if !only && cleanupCompleted(w, machine, affs, states, all, dry) && !dry {
 		for _, af := range affs {
 			if err := saveState(af, states[af.ID]); err != nil {
 				return err

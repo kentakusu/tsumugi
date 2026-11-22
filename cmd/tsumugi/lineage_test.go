@@ -10,6 +10,50 @@ import (
 	"time"
 )
 
+// tsumugi a（1 本だけ扱う回）: ほかの所属で動いているものを「紡の外」と見て足さない・Completed を片付けない。
+// daemon が立ち上がったばかりなら、何もせずに終わらず、落ち着くまで待ってから続ける。
+func TestReconcileOnly(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TSUMUGI_HOME", dir)
+	t.Setenv("TSUMUGI_MACHINE", "m")
+	os.MkdirAll(filepath.Join(dir, "a"), 0o700)
+	p := filepath.Join(dir, "a", configFile)
+	os.WriteFile(p, []byte(`{"表示名":"a","セッション":[{"名前":"s","作業フォルダ":"/w/s"},{"名前":"t","作業フォルダ":"/w/t"}]}`), 0o600)
+	before, _ := os.ReadFile(p)
+	af := affiliation{ID: "a", Path: p, Sessions: []sessionSpec{{Name: "s", Dir: "/w/s"}, {Name: "t", Dir: "/w/t"}}}
+	saveState(af, affState{Sessions: map[string]sessionState{"s": {SessionID: "S1"}}})
+	stubTranscripts(t, "S1", "OTHER")
+	stubJobRecords(t, map[string]jobRecord{"S1": tsumugiJob("a", "s")})
+	oldStart, oldWait := daemonStartedAt, waitDaemonSettle
+	t.Cleanup(func() { daemonStartedAt, waitDaemonSettle = oldStart, oldWait })
+	daemonStartedAt = func() (time.Time, bool) { return time.Now().Add(-5 * time.Second), true }
+	waited := false
+	waitDaemonSettle = func(time.Duration) { waited = true }
+	f := &fakeClaude{}
+	f.install(t)
+	// s は動いている。ほかの所属のセッション（other-aff）が動いている。t と同じ名前の古い会話が Completed にある
+	f.started = []agent{
+		{Name: "s", SessionID: "S1", ID: "s1000000", Pid: 1, Status: "idle", Kind: "background"},
+		{Name: "other-aff", SessionID: "OTHER", ID: "oth00000", Pid: 2, Status: "idle", Kind: "background", Cwd: "/w/b"},
+		{Name: "t", SessionID: "OLDT", ID: "oldt0000", State: "done"},
+	}
+	var out bytes.Buffer
+	if err := reconcile(&out, []affiliation{onlySession(af, af.Sessions[0])}, false); err != nil {
+		t.Fatal(err)
+	}
+	if !waited || !strings.Contains(out.String(), "落ち着くまで") {
+		t.Fatalf("立ち上がったばかりのとき待っていない: %s", out.String())
+	}
+	if after, _ := os.ReadFile(p); string(after) != string(before) {
+		t.Fatalf("1 本だけの回で所属.json に足した: %s", after)
+	}
+	for _, c := range f.calls {
+		if c[0] == "rm" || c[0] == "stop" || c[0] == "--bg" {
+			t.Fatalf("1 本だけの回で片付け・付け直しをした: %q\n%s", f.calls, out.String())
+		}
+	}
+}
+
 // 乗り換えると前の会話に残る。同じ ID・空には乗り換えない。
 func TestMoveTo(t *testing.T) {
 	var ss sessionState

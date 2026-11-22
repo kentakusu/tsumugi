@@ -363,6 +363,24 @@ func readDaemonStartedAt() (time.Time, bool) {
 	return last, !last.IsZero()
 }
 
+// 1 本だけ扱う回（tsumugi a・名前を変える。onlySession で絞った所属）か。
+func onlyMode(affs []affiliation) bool {
+	for _, af := range affs {
+		if af.only {
+			return true
+		}
+	}
+	return false
+}
+
+// daemon が落ち着くまで待つ。待つ間も数秒おきに claude agents を呼ぶ（呼ぶ人が居ないと daemon は数秒で自分から終わり、
+// 次の呼び出しでまた立ち上がり直してしまう）。テストで差し替える。
+var waitDaemonSettle = func(d time.Duration) {
+	for end := time.Now().Add(d); time.Now().Before(end); time.Sleep(3 * time.Second) {
+		listAllAgents()
+	}
+}
+
 // daemon が立ち上がったばかりなら、あと何秒待てばよいか（0 なら待たない）。
 func daemonJustStarted(now time.Time) time.Duration {
 	t, ok := daemonStartedAt()
