@@ -91,6 +91,9 @@ func warnLostSettings(w io.Writer, machine string, affs []affiliation, states ma
 	}
 }
 
+// 起きてからこの時間は、会話の記録がまだ無くても「中身が無い」と決めない（record）。
+var transcriptGrace = 3 * time.Minute
+
 // 会話の記録（<Claude の設定の置き場>/projects/<道>/<会話 ID>.jsonl）に中身（人かモデルの発言）があるか。
 // ★道は作業フォルダから決まるが、worktree に入ると記録の置き場も移る（2026-11-22 UseAI・Windows で実測）ので、
 //

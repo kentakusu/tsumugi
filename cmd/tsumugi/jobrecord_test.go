@@ -119,15 +119,17 @@ func stubTranscripts(t *testing.T, ids ...string) {
 func TestRecordSkipsEmptyConversation(t *testing.T) {
 	stubTranscripts(t, "REAL", "COPY")
 	dir := t.TempDir()
-	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "acc"}, {Name: "oss"}, {Name: "new"}}}
+	af := affiliation{ID: "a", Path: filepath.Join(dir, "a", configFile), Sessions: []sessionSpec{{Name: "acc"}, {Name: "oss"}, {Name: "new"}, {Name: "main"}}}
 	os.MkdirAll(filepath.Join(dir, "a"), 0o700)
 	states := map[string]affState{"a": {Sessions: map[string]sessionState{
-		"acc": {SessionID: "REAL"}, "oss": {SessionID: "OLD"},
+		"acc": {SessionID: "REAL"}, "oss": {SessionID: "OLD"}, "main": {SessionID: "BEFORE"},
 	}}}
 	all := []agent{
 		{Name: "acc", SessionID: "EMPTY", ID: "c6e57e3e", Pid: 1, StartedAt: 1}, // 一覧から開いて起きた空の会話
 		{Name: "oss", SessionID: "COPY", ID: "copy", Pid: 2, StartedAt: 1},      // 中身のある写し（対照）
 		{Name: "new", SessionID: "FRESH", ID: "fresh", Pid: 3, StartedAt: 1},    // この run で初めて起こしたもの（対照）
+		// 起きたばかりで、まだ会話の記録を書いていない付け直しの写し（2026-11-22 Reatex の 73e96e35）
+		{Name: "main", SessionID: "JUST", ID: "73e96e35", Pid: 4, StartedAt: time.Now().Add(-3 * time.Second).UnixMilli()},
 	}
 	learnIDs(states)
 	startedNow = map[string]bool{"new": true}
@@ -159,6 +161,22 @@ func TestRecordSkipsEmptyConversation(t *testing.T) {
 	}
 	if got := states["a"].Sessions["new"].SessionID; got != "FRESH" {
 		t.Fatalf("初めて起こしたものを控えていない: %s", got)
+	}
+	// 起きたばかりのものは判定を次の回に回す: まだ乗り換えず、★も出さない（★は acc の 1 つだけ・rm も OLD だけ＝上で確かめた）
+	if got := states["a"].Sessions["main"].SessionID; got != "BEFORE" || strings.Contains(out.String(), "73e96e35") {
+		t.Fatalf("起きたばかりの写しを判定した: %s %q", got, out.String())
+	}
+	// 次の回: 記録が書かれていれば乗り換え、古い ID を外す
+	stubTranscripts(t, "REAL", "COPY", "JUST")
+	f2 := &fakeClaude{}
+	f2.install(t)
+	out.Reset()
+	record(&out, []affiliation{af}, states, all)
+	if got := states["a"].Sessions["main"].SessionID; got != "JUST" {
+		t.Fatalf("記録が書かれたあとも乗り換えていない: %s", got)
+	}
+	if len(f2.calls) != 1 || strings.Join(f2.calls[0], " ") != "rm BEFORE" {
+		t.Fatalf("乗り換えたあと古い ID を外していない: %q", f2.calls)
 	}
 }
 

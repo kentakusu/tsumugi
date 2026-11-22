@@ -403,6 +403,12 @@ func record(w io.Writer, affs []affiliation, states map[string]affState, all []a
 					// ★控えの会話から乗り換えるのは、乗り換え先に会話の中身があるときだけ（jobrecord.go の hasTranscript）。
 					// 中身の無い会話を控えると、次からその空の会話を起こし直し、本物の会話を見失う。
 					if prev.SessionID != "" && !hasTranscript(a.SessionID) {
+						// ★起きたばかりの写しは、指示を処理し終えるまで会話の記録を書かない（2026-11-22 Reatex で実測:
+						// 紡が付け直して起こした 73e96e35 を 3 秒後に「中身が無い」と判定したが、30 秒後には 6.9MB あった）。
+						// 起きてから transcriptGrace のあいだは判定を次の回に回す（乗り換えず、知らせもしない）。
+						if time.Since(time.UnixMilli(a.StartedAt)) < transcriptGrace {
+							continue
+						}
 						fmt.Fprintf(w, "★%s/%s: 同じ名前で、会話の中身が無いセッション（%s）が動いています。紡は控えの会話（%s）から乗り換えません。"+
 							"空のセッションなら claude stop %s してください（次の run が控えの会話を起こし直します）\n",
 							af.ID, s.Name, short(a.SessionID), short(prev.SessionID), a.ID)
