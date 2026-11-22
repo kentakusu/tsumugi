@@ -124,6 +124,17 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 		fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", d.Running.Status)
 		return false, ""
 	}
+	if d.spec.Name != "" && !jobKeepsSettings(d.SessionID, d.Name) {
+		// ★Claude Code が起こした時の設定を覚えていない（jobrecord.go）。フラグ無しで渡すと、名前もチャネルも
+		// 権限モードも抜けたまま起きるか、写しになる（2026-11-22 Reatex・UseAI で実測）。
+		// 同じ会話 ID のまま紡の設定で付け直し、指示はそのとき渡す（refitSameID。写しを作らない）。
+		fmt.Fprint(w, "（Claude Code が設定を覚えていないので、同じ会話のまま紡の設定を付け直す）")
+		if !refitSameID(w, d.af, d.spec, d.SessionID, d.Prompt, d.Running) {
+			return false, ""
+		}
+		fmt.Fprintln(w, " … した")
+		return true, ""
+	}
 	if d.Running != nil {
 		if _, err := runClaude("stop", d.Running.ID); err != nil {
 			fmt.Fprintln(w, " … 止められず失敗")
@@ -136,16 +147,9 @@ func deliverPrompt(w io.Writer, d delivery) (bool, string) {
 		time.Sleep(stopSettle) // 止まった直後に --resume すると写しになることがある
 	}
 	t0 := time.Now()
+	// 設定を覚えている会話: フラグ無しの --resume ＋指示で、同じ ID・保存した設定のまま起きる
+	// （claude の note「woke session … with its saved options」・2026-11-22 Windows で実測）。
 	args := []string{"--bg", "--resume", d.SessionID, d.Prompt}
-	if d.spec.Name != "" && !jobKeepsSettings(d.SessionID, d.Name) {
-		// ★Claude Code が起こした時の設定を覚えていない（jobrecord.go）。フラグ無しで渡すと、名前もチャネルも
-		// 権限モードも抜けたまま起き、定時・届けのたびにその形が続く（2026-11-22 Reatex で実測: stop したあと
-		// 17:17 の定時がこの道で同じ ID のまま起こし、run の「起こし直す」の付け直しに届かなかった）。
-		spec := d.spec
-		spec.Prompt, spec.From = d.Prompt, d.SessionID
-		args = startArgs(d.af, spec)
-		fmt.Fprint(w, "（Claude Code が設定を覚えていないので、紡の設定を付け直す）")
-	}
 	if _, err := runClaudeIn(d.Dir, args...); err != nil {
 		fmt.Fprintln(w, " … 失敗:", err)
 		return false, ""

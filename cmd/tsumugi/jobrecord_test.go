@@ -35,8 +35,8 @@ func TestPlanRefitWhenJobForgot(t *testing.T) {
 	for _, a := range plan(affs, states, nil) {
 		got[a.Name] = a
 	}
-	if a := got["keep"]; a.Verb != "起こし直す" || a.Refit || strings.Join(a.Args, " ") != "--bg --resume s-keep" {
-		t.Fatalf("覚えているならフラグ無しのはず（対照）: %+v", a)
+	if a := got["keep"]; a.Verb != "起こし直す" || a.Refit || strings.Join(a.Args, " ") != "respawn s-keep" {
+		t.Fatalf("覚えているなら claude respawn のはず（対照）: %+v", a)
 	}
 	for _, name := range []string{"auto", "gone", "failed", "noflags"} {
 		a := got[name]
@@ -277,25 +277,74 @@ func TestWaitAfterDaemonStart(t *testing.T) {
 	}
 }
 
-// 動いているのに Claude Code 側の名前が付け替わったものだけを★で知らせる。
-func TestWarnLostSettings(t *testing.T) {
+// 紡の設定を持つ job の記録（--settings に紡の env が入っている）。
+func tsumugiJob(aff, name string) jobRecord {
+	return jobRecord{Name: name, NameSource: "user", State: "working", RespawnFlags: []string{
+		"-n", name, "--settings", `{"autoMemoryEnabled":false,"env":{"TSUMUGI_AFFILIATION":"` + aff + `","TSUMUGI_SESSION":"` + name + `"}}`}}
+}
+
+// 動いているものを配下に揃える:
+//   - 控えの会話が紡の設定を持っていれば何もしない（対照）
+//   - 控えの会話に紡の設定が無ければ、空いているとき同じ ID のまま付け直す（stop → rm → フラグ付き --resume ＋知らせ）
+//   - 作業中なら次の回に回す
+//   - 手で起こした同じ名前のもの: 紡の設定が無ければ付け直して控える／あればそのまま控える
+func TestAdoptRunning(t *testing.T) {
+	onDemandSetup(t)
 	stubJobRecords(t, map[string]jobRecord{
-		"s-ok":   {Name: "ok", NameSource: "user", State: "stopped", RespawnFlags: []string{"-n"}},
-		"s-auto": {Name: "lw-monitoring-patrol", NameSource: "auto"},
+		"s-ok":    tsumugiJob("x", "ok"),
+		"s-auto":  {Name: "lw-monitoring-patrol", NameSource: "auto", State: "working"},
+		"s-busy":  {Name: "busy-auto", NameSource: "auto", State: "working"},
+		"s-hand":  {Name: "hand", NameSource: "user", State: "working", RespawnFlags: []string{"-n", "hand"}},
+		"s-hand2": tsumugiJob("x", "hand2"),
 	})
-	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "stopped"}}}}
+	affs := []affiliation{{ID: "x", Sessions: []sessionSpec{{Name: "ok"}, {Name: "auto"}, {Name: "busy"}, {Name: "hand"}, {Name: "hand2"}}}}
 	states := map[string]affState{"x": {Sessions: map[string]sessionState{
-		"ok": {SessionID: "s-ok"}, "auto": {SessionID: "s-auto"}, "stopped": {SessionID: "s-stopped"},
+		"ok": {SessionID: "s-ok"}, "auto": {SessionID: "s-auto"}, "busy": {SessionID: "s-busy"},
 	}}}
 	all := []agent{
-		{Name: "ok", SessionID: "s-ok", ID: "s-ok", Pid: 1},
-		{Name: "lw-monitoring-patrol", SessionID: "s-auto", ID: "b1049fe0", Pid: 2},
+		{Name: "ok", SessionID: "s-ok", ID: "ok000000", Pid: 1, Status: "idle"},
+		{Name: "lw-monitoring-patrol", SessionID: "s-auto", ID: "b1049fe0", Pid: 2, Status: "idle"},
+		{Name: "busy-auto", SessionID: "s-busy", ID: "busy0000", Pid: 3, Status: "busy"},
+		{Name: "hand", SessionID: "s-hand", ID: "hand0000", Pid: 4, Status: "idle", StartedAt: 5},
+		{Name: "hand2", SessionID: "s-hand2", ID: "hand2000", Pid: 5, Status: "busy", StartedAt: 5},
 	}
+	f := &fakeClaude{}
+	f.install(t)
 	var out bytes.Buffer
-	warnLostSettings(&out, "m", affs, states, all)
-	got := out.String()
-	if strings.Count(got, "★") != 1 || !strings.Contains(got, "x/auto") || !strings.Contains(got, "lw-monitoring-patrol") || !strings.Contains(got, "claude stop b1049fe0") {
-		t.Fatalf("知らせ方が違う: %q", got)
+	if !adoptRunning(&out, "m", affs, states, all, false) {
+		t.Fatalf("何もしなかった: %s", out.String())
+	}
+	var calls []string
+	for _, c := range f.calls {
+		if c[0] == "agents" {
+			continue
+		}
+		s := strings.Join(c, " ")
+		if c[0] == "--bg" {
+			// 付け直しの起動は、名前・紡の env・同じ ID の --resume・知らせを持つ
+			for _, want := range []string{"--resume s-", `"TSUMUGI_AFFILIATION":"x"`, refitNotice} {
+				if !strings.Contains(s, want) {
+					t.Fatalf("付け直しの起動に %q が無い: %s", want, s)
+				}
+			}
+			for i, a := range c {
+				if a == "-n" {
+					s = "--bg -n " + c[i+1]
+				}
+			}
+		}
+		calls = append(calls, s)
+	}
+	want := []string{"stop b1049fe0", "rm s-auto", "--bg -n auto", "stop hand0000", "rm s-hand", "--bg -n hand"}
+	if strings.Join(calls, " | ") != strings.Join(want, " | ") {
+		t.Fatalf("呼び方が違う:\n got %q\nwant %q\n%s", calls, want, out.String())
+	}
+	st := states["x"].Sessions
+	if st["auto"].SessionID != "s-auto" || st["hand"].SessionID != "s-hand" || st["hand2"].SessionID != "s-hand2" || st["busy"].SessionID != "s-busy" {
+		t.Fatalf("控えが違う（同じ ID のまま控えるはず）: %+v", st)
+	}
+	if !strings.Contains(out.String(), "作業中なので次の回に") {
+		t.Fatalf("作業中のものを次の回に回していない: %s", out.String())
 	}
 }
 

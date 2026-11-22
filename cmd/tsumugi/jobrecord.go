@@ -66,29 +66,163 @@ var readJobRecord = func(sessionID string) (jobRecord, bool) {
 	return j, true
 }
 
-// 紡が控えた会話が動いているのに、Claude Code 側の名前が紡の名前と違う（自動で付け替わった）ものを知らせる。
-// そうなったセッションは、紡の設定（チャネル・権限モード・env・結の決まり）を持たずに起きている恐れがある。
-// 紡は動いているものを止めない。止めれば、次の run が設定を付け直して起こす。
-func warnLostSettings(w io.Writer, machine string, affs []affiliation, states map[string]affState, all []agent) {
-	for _, af := range affs {
-		for _, sp := range af.Sessions {
-			ss, known := states[af.ID].Sessions[sp.Name]
-			if !known || ss.SessionID == "" || !sp.here(machine) {
-				continue
-			}
-			for _, a := range all {
-				if a.Pid <= 0 || a.SessionID != ss.SessionID {
-					continue
-				}
-				j, ok := readJobRecord(ss.SessionID)
-				if ok && (j.Name != sp.Name || j.NameSource != "user") {
-					fmt.Fprintf(w, "★%s/%s: 動いていますが、Claude Code 側の名前が %q（%s）になっていて、紡の設定（チャネル・権限モード・env）が付いていない恐れがあります。"+
-						"空いているときに claude stop %s すれば、次の run が設定を付け直して起こします\n", af.ID, sp.Name, j.Name, j.NameSource, a.ID)
-				}
-				break
-			}
+// 紡のセッションを、同じ会話 ID のまま紡の設定（名前・チャネル・権限モード・env・結の決まり）で起こし直す。
+// 写し（新しい ID）を作らないので、claude agents と紡の控えが同じ ID・同じ名前のまま揃う。
+//
+//	動いていれば止める（空いているときだけ） → claude rm（Claude Code 側の記録だけ外す。会話は残る）
+//	→ 紡のフラグを付けて claude --bg --resume <ID> "<指示>"
+//
+// ★記録が残っている会話にフラグを付けて --resume すると写しになる。記録を外してからだと、同じ ID のまま
+//
+//	フラグどおりに起きる（2026-11-22 Windows・2.1.330 で実測: e415b202 が名前・フラグ付きで同じ ID、前の会話も持って起きた）。
+//
+// ★指示を必ず付ける。指示の無いフラグ付きの --resume は、会話を読み込まない空の会話で起きる（useai-main の実測）。
+// ★claude rm は、worktree に未 push の変更があると断る。そのときは付け直さずに知らせる（変更を消さない）。
+// 渡せたら true。
+func refitSameID(w io.Writer, af affiliation, s sessionSpec, sessionID, prompt string, running *agent) bool {
+	if running != nil {
+		if running.Status != "idle" {
+			fmt.Fprintf(w, " … 作業中なので次の回に（%s）\n", running.Status)
+			return false
+		}
+		if _, err := runClaude("stop", running.ID); err != nil {
+			fmt.Fprintln(w, " … 止められず失敗:", err)
+			return false
+		}
+		if !waitStoppedID(sessionID, 20*time.Second) {
+			fmt.Fprintln(w, " … 止まりきらず失敗")
+			return false
+		}
+		time.Sleep(stopSettle)
+	}
+	if _, err := runClaude("rm", short(sessionID)); err != nil && !strings.Contains(err.Error(), "No session matching") {
+		fmt.Fprintf(w, " … ★claude rm %s が断ったので付け直せません（worktree に未 push の変更があるなど）: %v\n", short(sessionID), err)
+		return false
+	}
+	if s.Trust {
+		if err := trustBeforeStart(io.Discard, action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}, false); err != nil {
+			fmt.Fprintln(w, " … 作業フォルダを信頼済みにできず失敗:", err)
+			return false
 		}
 	}
+	spec := s
+	spec.Prompt, spec.From = prompt, sessionID
+	if _, err := runClaudeIn(s.Dir, startArgs(af, spec)...); err != nil {
+		fmt.Fprintln(w, " … 失敗:", err)
+		return false
+	}
+	resumed[s.Name] = true
+	startedNow[s.Name] = true
+	return true
+}
+
+// 会話 ID で動いているものが止まるのを待つ。
+func waitStoppedID(sessionID string, d time.Duration) bool {
+	for end := time.Now().Add(d); ; time.Sleep(time.Second) {
+		all, err := listAllAgents()
+		if err == nil {
+			alive := false
+			for _, a := range all {
+				if a.SessionID == sessionID && a.Pid > 0 {
+					alive = true
+				}
+			}
+			if !alive {
+				return true
+			}
+		}
+		if !time.Now().Before(end) {
+			return false
+		}
+	}
+}
+
+// 紡のセッションを配下に揃える（動いているもの）。
+//   - 紡が控えた会話が動いているのに、Claude Code 側に紡の設定が無い（名前が自動で付け替わった・failed から起きた等）
+//   - 所属.json の名前で、紡が控えていない会話が動いている（人が claude で手で起こした等）
+//
+// どちらも、空いていれば同じ会話 ID のまま紡の設定で付け直し（refitSameID）、控えに入れる。作業中なら次の回に回す。
+// 紡の設定が既に揃っている手で起こしたものは、止めずにそのまま控える。
+func adoptRunning(w io.Writer, machine string, affs []affiliation, states map[string]affState, all []agent, dry bool) bool {
+	any := false
+	for _, af := range affs {
+		st := states[af.ID]
+		for _, sp := range af.Sessions {
+			if !sp.here(machine) {
+				continue
+			}
+			ss, known := st.Sessions[sp.Name]
+			var a agent
+			found := false
+			if known && ss.SessionID != "" {
+				for _, x := range all {
+					if x.Pid > 0 && x.SessionID == ss.SessionID {
+						a, found = x, true
+					}
+				}
+			}
+			adopting := false
+			if !found {
+				// 控えの会話が動いていない。同じ名前で動いているもの（手で起こしたもの）があれば配下に入れる
+				var best agent
+				for _, x := range all {
+					if x.Pid > 0 && x.Name == sp.Name && x.StartedAt > best.StartedAt {
+						best = x
+					}
+				}
+				if best.SessionID == "" {
+					continue
+				}
+				a, adopting = best, true
+			}
+			if jobKeepsSettings(a.SessionID, sp.Name) && jobHasTsumugiEnv(a.SessionID, af.ID, sp.Name) {
+				if adopting {
+					fmt.Fprintf(w, "%s/%s: 紡の外で動いていた %s は紡の設定を持っているので、そのまま配下に入れる\n", af.ID, sp.Name, short(a.SessionID))
+					if !dry {
+						ss.SessionID = a.SessionID
+						st.Sessions[sp.Name] = ss
+						any = true
+					}
+				}
+				continue
+			}
+			if adopting {
+				fmt.Fprintf(w, "%s/%s: 紡の外で動いている %s を、同じ会話のまま紡の設定で配下に入れる", af.ID, sp.Name, short(a.SessionID))
+			} else {
+				fmt.Fprintf(w, "%s/%s: 動いている %s に紡の設定が付いていないので、同じ会話のまま付け直す", af.ID, sp.Name, short(a.SessionID))
+			}
+			if dry {
+				fmt.Fprintln(w, "（しない）")
+				continue
+			}
+			if !refitSameID(w, af, sp, a.SessionID, refitNotice, &a) {
+				continue
+			}
+			fmt.Fprintln(w, " … した")
+			ss.SessionID = a.SessionID
+			st.Sessions[sp.Name] = ss
+			any = true
+		}
+		states[af.ID] = st
+	}
+	return any
+}
+
+// job の記録の --settings に、紡の env（TSUMUGI_AFFILIATION・TSUMUGI_SESSION）が入っているか。
+// 人が claude -n <名前> で手で起こしたものは、名前が同じでも紡の設定を持たない。
+func jobHasTsumugiEnv(sessionID, aff, name string) bool {
+	j, ok := readJobRecord(sessionID)
+	if !ok {
+		return false
+	}
+	for i, f := range j.RespawnFlags {
+		if (f == "--settings" && i+1 < len(j.RespawnFlags) && strings.Contains(j.RespawnFlags[i+1], `"TSUMUGI_SESSION":"`+name+`"`) &&
+			strings.Contains(j.RespawnFlags[i+1], `"TSUMUGI_AFFILIATION":"`+aff+`"`)) ||
+			strings.HasPrefix(f, "--settings=") && strings.Contains(f, `"TSUMUGI_SESSION":"`+name+`"`) {
+			return true
+		}
+	}
+	return false
 }
 
 // 起きてからこの時間は、会話の記録がまだ無くても「中身が無い」と決めない（record）。
@@ -96,14 +230,10 @@ var transcriptGrace = 3 * time.Minute
 
 // 会話の記録（<Claude の設定の置き場>/projects/<道>/<会話 ID>.jsonl）に中身（人かモデルの発言）があるか。
 // ★道は作業フォルダから決まるが、worktree に入ると記録の置き場も移る（2026-11-22 UseAI・Windows で実測）ので、
-//
-//	projects の下を全部探す。
-//
+// projects の下を全部探す。
 // ★Claude Code は、会話を読み込まずに「指示を待つ空の会話」を起こすことがある（指示の無いフラグ付きの --resume、
-//
-//	一覧から開いた止まったセッション）。そういう会話には記録ファイルが無い。紡が控えの会話 ID を乗り換えるのは、
-//	乗り換え先に中身があるときだけにする（2026-11-22 UseAI: 空の会話を useai-accounting として控え直していた）。
-//
+// 一覧から開いた止まったセッション）。そういう会話には記録ファイルが無い。紡が控えの会話 ID を乗り換えるのは、
+// 乗り換え先に中身があるときだけにする（2026-11-22 UseAI: 空の会話を useai-accounting として控え直していた）。
 // テストで差し替える。
 var hasTranscript = func(sessionID string) bool {
 	if sessionID == "" {

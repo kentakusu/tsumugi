@@ -26,7 +26,11 @@ type action struct {
 	Dir         string
 	Args        []string
 	Trust       bool // 起こす直前に作業フォルダを信頼済みにする（所属.json の「信頼する」）
-	Refit       bool // 起こし直すが、claude 側が設定を覚えていないので、紡のフラグを付け直す
+	Refit       bool // 起こし直すが、claude 側が設定を覚えていないので、紡のフラグを付け直す（同じ ID のまま）
+	// 付け直し（Refit）に使う
+	af        affiliation
+	spec      sessionSpec
+	SessionID string
 }
 
 // 突き合わせて、やることを決める（claude は呼ばない）。
@@ -70,18 +74,17 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 			if prev, ok := st.Sessions[s.Name]; ok && prev.SessionID != "" {
 				act.Verb = "起こし直す"
 				if jobKeepsSettings(prev.SessionID, s.Name) {
-					// 起こした時の設定は claude 側が覚えている。フラグを付けると写しになるので付けない。
-					act.Args = []string{"--bg", "--resume", prev.SessionID}
+					// 起こした時の設定は claude 側が覚えている。claude respawn で、同じ ID・同じ名前・同じ設定のまま起こす
+					// （2026-11-22 Windows・2.1.330 で実測: 止めた会話が同じ ID で、前の会話も持って起きた）。
+					act.Args = []string{"respawn", short(prev.SessionID)}
 				} else {
-					// ★claude 側が設定を覚えていない（job の記録が無い・名前が自動で付け替わった。jobrecord.go）。
-					// フラグ無しだと名前もチャネルも権限モードも抜けて起きるので、最初と同じフラグを付けて --resume する。
-					// 記録が無ければ同じ ID のまま、記録が残っていれば写しで起きる（写しは record が名前で拾う）。
-					// ★指示を必ず付ける。フラグ付きの --resume は、指示が無いと会話を読み込まず「指示を待つ空の会話」として
-					// 起きる（2026-11-22 UseAI で useai-main が実測: jsonl が無く needs: "send a prompt to start"。
-					// 指示を付けると元の会話の中身を持って起きた）。最初の指示ではなく、付け直した知らせを渡す。
+					// ★claude 側が設定を覚えていない（job の記録が無い・名前が自動で付け替わった・failed。jobrecord.go）。
+					// 同じ会話 ID のまま紡の設定で付け直す（refitSameID: claude rm → フラグ付きの --resume ＋知らせ）。
+					// 写しは作らない。Args は --dry で見せる形。
 					spec := s
 					spec.Prompt, spec.From = refitNotice, prev.SessionID
 					act.Args, act.Refit = startArgs(af, spec), true
+					act.af, act.spec, act.SessionID = af, s, prev.SessionID
 				}
 			} else {
 				act.Verb, act.Args = "起こす", startArgs(af, s)
@@ -210,6 +213,14 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	if err != nil {
 		return err
 	}
+	// ★Claude Code の daemon が立ち上がったばかりなら、この回は何もしない（渡す・起こし直す・控えるのどれも）。
+	// daemon は run の最初の claude 呼び出しで立ち上がることがあり（WSL を起こし直したあと）、その直後は
+	// 止まった会話を「動いている」と返したり、--resume が空の会話や設定の無い写しを作ったりする
+	// （2026-11-22 Reatex で実測: daemon start の 0.6 秒後に、動いている扱いの道から設定の無い写しができた）。
+	if left := daemonJustStarted(time.Now()); left > 0 && !dry {
+		fmt.Fprintf(w, "Claude Code が立ち上がったばかりなので、この回は何もしません（あと %d 秒は待つ）\n", int(left.Seconds())+1)
+		return nil
+	}
 	// 届け待ちと定時を先に渡す（止まっているものは、指示を付けて起こすので、下の「起こし直す」と重ならない）。
 	queuedDone, err := deliverQueue(w, affs, states, all, time.Now(), dry)
 	if err != nil {
@@ -243,17 +254,18 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		}
 	}
 	machine := thisMachine()
-	for _, af := range affs {
-		for _, sp := range af.Sessions {
-			if _, known := states[af.ID].Sessions[sp.Name]; known || !sp.here(machine) {
-				continue
-			}
-			if _, ok := newestRunning(all, sp.Name); ok {
-				fmt.Fprintf(w, "★%s/%s: 同じ名前のセッションが紡の外で動いています。紡は控えず、触りません（閉じれば、次の run で紡が起こします）\n", af.ID, sp.Name)
+	// 動いているものを配下に揃える（手で起こしたもの・紡の設定が抜けたもの。同じ会話 ID のまま付け直す）。
+	if adoptRunning(w, machine, affs, states, all, dry) && !dry {
+		for _, af := range affs {
+			if err := saveState(af, states[af.ID]); err != nil {
+				return err
 			}
 		}
+		learnIDs(states)
+		if all, err = listAllAgents(); err != nil {
+			return err
+		}
 	}
-	warnLostSettings(w, machine, affs, states, all)
 	acts := skipResumed(plan(affs, states, all))
 	if len(acts) == 0 {
 		fmt.Fprintln(w, "揃っています。")
@@ -295,7 +307,11 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 			fmt.Fprintf(w, "（しない）claude %q\n", act.Args)
 			continue
 		}
-		if len(act.Args) > 0 {
+		if act.Refit {
+			if !refitSameID(w, act.af, act.spec, act.SessionID, refitNotice, nil) {
+				continue
+			}
+		} else if len(act.Args) > 0 {
 			if _, err := runClaudeIn(act.Dir, act.Args...); err != nil {
 				fmt.Fprintln(w, " … 失敗")
 				if firstErr == nil {

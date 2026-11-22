@@ -161,8 +161,8 @@ func TestPlan(t *testing.T) {
 	if _, ok := got["a-run"]; ok || len(acts) != 4 {
 		t.Fatalf("やることが違う: %+v", acts)
 	}
-	if a := got["a-old"]; a.Verb != "起こし直す" || strings.Join(a.Args, " ") != "--bg --resume s-old" {
-		t.Fatalf("起こし直しはフラグ無しの --resume のはず: %+v", a)
+	if a := got["a-old"]; a.Verb != "起こし直す" || strings.Join(a.Args, " ") != "respawn s-old" {
+		t.Fatalf("起こし直しは claude respawn のはず: %+v", a)
 	}
 	if a := strings.Join(got["a-new"].Args, " "); !strings.Contains(a, "-n a-new") || !strings.Contains(a, `"autoMemoryEnabled":false`) || !strings.Contains(a, `"TSUMUGI_SESSION":"a-new"`) || !strings.Contains(a, "tsumugi yui") ||
 		!strings.Contains(a, "--permission-mode dontAsk") || !strings.HasSuffix(a, "待機") {
