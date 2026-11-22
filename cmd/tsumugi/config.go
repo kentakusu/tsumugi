@@ -29,6 +29,9 @@ type sessionSpec struct {
 	// 既存の会話（セッション ID）を写して始める。ほかの場所で始めた会話を
 	// 紡に移すときに使う。紡が一度起こしたあとは見ない（状態.json が優先）。
 	From string `json:"引き継ぐ会話,omitempty"`
+	// 作業フォルダを、紡が起こす直前に Claude Code の「信頼済み」にする（trust.go）。
+	// 信頼の確認（フォルダのフックや MCP が勝手に動くのを防ぐ）を、書いた人の判断で先に済ませる。
+	Trust bool `json:"信頼する,omitempty"`
 	// 動かすマシン（ホスト名）。空ならどのマシンでも。合わないマシンの紡は起こさず・止めない。
 	Machine string `json:"マシン,omitempty"`
 	// 決まった時刻に届ける指示。

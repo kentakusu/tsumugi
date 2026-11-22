@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ type action struct {
 	Verb        string // 起こす / 起こし直す / 写して起こす / 止める
 	Dir         string
 	Args        []string
+	Trust       bool // 起こす直前に作業フォルダを信頼済みにする（所属.json の「信頼する」）
 }
 
 // 突き合わせて、やることを決める（claude は呼ばない）。
@@ -66,6 +68,7 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 				act.Verb, act.Args = "起こし直す", []string{"--bg", "--resume", prev.SessionID}
 			} else {
 				act.Verb, act.Args = "起こす", startArgs(af, s)
+				act.Trust = s.Trust
 				if s.From != "" {
 					act.Verb = "写して起こす"
 				}
@@ -253,6 +256,15 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 				continue
 			}
 		}
+		if act.Trust {
+			if err := trustBeforeStart(w, act, dry); err != nil {
+				fmt.Fprintf(w, "%s/%s: 作業フォルダを信頼済みにできないので起こしません: %v\n", act.Affiliation, act.Name, err)
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+		}
 		fmt.Fprintf(w, "%s/%s: %s", act.Affiliation, act.Name, act.Verb)
 		if dry {
 			fmt.Fprintf(w, "（しない）claude %q\n", act.Args)
@@ -289,6 +301,30 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 		return err
 	}
 	return firstErr
+}
+
+// 起こす直前に、作業フォルダを信頼済みにする。
+func trustBeforeStart(w io.Writer, act action, dry bool) error {
+	cfg, err := claudeConfigPath()
+	if err != nil {
+		return err
+	}
+	if dry {
+		fmt.Fprintf(w, "%s/%s: 作業フォルダ %s を信頼済みにする（しない・%s）\n", act.Affiliation, act.Name, act.Dir, cfg)
+		return nil
+	}
+	root, err := homeDir()
+	if err != nil {
+		return err
+	}
+	wrote, err := trustFolder(cfg, act.Dir, root)
+	if err != nil {
+		return err
+	}
+	if wrote {
+		fmt.Fprintf(w, "%s/%s: 作業フォルダ %s を信頼済みにした（%s・控えは %s）\n", act.Affiliation, act.Name, act.Dir, cfg, filepath.Join(root, "設定の控え"))
+	}
+	return nil
 }
 
 var settleWait = 30 * time.Second // テストで縮める
