@@ -193,7 +193,7 @@ func TestInstallFiles(t *testing.T) {
 	if f := launchdFile("/L", e); !strings.Contains(f.Body, "<string>/x/&lt;t&gt;&amp;</string>") || !strings.HasSuffix(f.Path, ".plist") {
 		t.Fatalf("plist のエスケープが違う:\n%s", f.Body)
 	}
-	if a := strings.Join(schtasksArgs(installEnv{Exe: `C:\t\tsumugi.exe`}), " "); !strings.Contains(a, `/TR "C:\t\tsumugi.exe" run`) {
+	if a := strings.Join(schtasksArgs(installEnv{Exe: `C:\t\tsumugi.exe`}), " "); !strings.Contains(a, `/TR C:\Windows\System32\conhost.exe --headless "C:\t\tsumugi.exe" run`) {
 		t.Fatalf("schtasks の引数が違う: %s", a)
 	}
 }

@@ -128,10 +128,15 @@ func launchdFile(dir string, e installEnv) file {
 }
 
 // タスク スケジューラ: 5 分おきに run。PATH はタスクに持たせられないので、ユーザーの PATH が使われる。
+// ★tsumugi.exe はコンソールのプログラムなので、そのまま起こすと 5 分おきに黒い窓が一瞬出る
+// （2026-11-23 鈴木さんが画面で確認）。conhost.exe --headless を挟んで、窓を出さずに起こす
+// （同日、使い捨てのタスクで tsumugi version と wsl が動くことを確かめた）。
 func schtasksArgs(e installEnv) []string {
 	return []string{"/Create", "/F", "/TN", unitName, "/SC", "MINUTE", "/MO", fmt.Sprint(interval),
-		"/TR", fmt.Sprintf(`"%s" run`, e.Exe)}
+		"/TR", fmt.Sprintf(`%s --headless "%s" run`, headlessHost, e.Exe)}
 }
+
+const headlessHost = `C:\Windows\System32\conhost.exe`
 
 func cmdInstall(dry, remove bool) error {
 	e, err := currentInstallEnv()
