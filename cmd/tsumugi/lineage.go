@@ -568,6 +568,7 @@ func askHandoff(w io.Writer, root string, affs []affiliation, name string) error
 		return fmt.Errorf("%s は作業中です（%s）。空いているときに打つか、申し送りを飛ばすなら --すぐ を付けてください", name, a.Status)
 	}
 	t0 := time.Now()
+	before := channelEnqueued(cur)
 	if ok, err := channelDeliver(root, af.ID, name, handoffPrompt); !ok {
 		fmt.Fprintf(w, "%s/%s: チャネルが応えないので、申し送りは飛ばします（%v）\n", af.ID, name, err)
 		return nil
@@ -587,10 +588,21 @@ func askHandoff(w io.Writer, root string, affs []affiliation, name string) error
 			busy = true
 			continue
 		}
-		// 受け取って働いたあと（busy を見た）か、記録が渡したあとに書かれていれば、書き終えたとみなす
-		if q, ok := quietFor(cur, time.Now()); busy || (ok && q < time.Since(t0)) {
+		// 受け取って働いたあと（busy を見てから idle に戻った）なら、書き終えたとみなす。
+		// ★「渡したあとに会話の記録が書かれた」では決めない。頼み自体が届いた時点で記録に書かれるので、
+		// 取りかかる前の idle を「済んだ」と読んでしまう（2026-11-23 UseAI: 3 秒で済んだと判断し、
+		// 取りかかって busy になったところで「作業中」と断って止まった）。
+		if busy {
 			fmt.Fprintf(w, "%s/%s: 申し送りが済みました\n", af.ID, name)
 			return nil
+		}
+		// 一度も busy を見ないまま長く空いている: 見る間に終わったか、頼みが捨てられたか。会話の記録で分ける
+		if time.Since(t0) >= handoffNoBusy {
+			if n := channelEnqueued(cur); before >= 0 && n > before {
+				fmt.Fprintf(w, "%s/%s: 申し送りの頼みは会話に入り、空いています（作業中は見られなかった）。済んだとみなします\n", af.ID, name)
+				return nil
+			}
+			return fmt.Errorf("%s に申し送りの頼みが入りませんでした（チャネルは応えたが会話の記録に無い）。起こし直していません（申し送りを飛ばすなら --すぐ）", name)
 		}
 	}
 	return fmt.Errorf("%s の申し送りが %d 分で終わりませんでした。起こし直していません（申し送りを飛ばすなら --すぐ）", name, int(handoffWait.Minutes()))
@@ -603,6 +615,9 @@ const handoffPrompt = "【紡】これから tsumugi 新しく で、このセ�
 // 申し送りを待つ長さと見る間隔。テストで縮める。
 var handoffWait = 10 * time.Minute
 var handoffPoll = 3 * time.Second
+
+// 一度も作業中を見ないまま、この長さ空いていたら、会話の記録で「入ったか」を見て決める。テストで縮める。
+var handoffNoBusy = 2 * time.Minute
 
 // 止めて、いまの会話を claude の一覧から外して前の会話に残し、最初の指示（前に「新しく起こし直した」知らせ）で新しい会話を起こす。
 func renewSession(w io.Writer, affs []affiliation, name string) error {
