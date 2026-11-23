@@ -188,24 +188,53 @@ func respawnAndDeliver(w io.Writer, root string, d delivery) bool {
 		fmt.Fprintln(w, " … claude respawn したが、まだ一覧に出ないので次の回に")
 		return false
 	}
+	// ★ソケットの ok は届いた証拠にならない（channelconfirm.go）。渡す前の数を控え、渡したあと会話の記録に
+	// 入ったのを数えて確かめる。入らなければ渡し直す（起きた直後はセッションがまだ受け取れず、捨てられる）。
+	before := channelEnqueued(d.SessionID)
 	var last error
-	for end := time.Now().Add(respawnWait); ; time.Sleep(time.Second) {
-		ok, err := channelDeliver(root, d.Affiliation, d.Name, d.Prompt)
-		if ok {
-			fmt.Fprintln(w, " … した（claude respawn で同じ会話のまま起こし、チャネルで渡した）")
+	for attempt := 1; attempt <= channelTries; attempt++ {
+		sent := false
+		for end := time.Now().Add(respawnWait); ; time.Sleep(time.Second) {
+			ok, err := channelDeliver(root, d.Affiliation, d.Name, d.Prompt)
+			if ok {
+				sent = true
+				break
+			}
+			last = err
+			if !time.Now().Before(end) {
+				break
+			}
+		}
+		if !sent {
+			fmt.Fprintln(w, " … claude respawn で起こしたが、チャネルが応えないので次の回に:", last)
+			return false
+		}
+		if before < 0 {
+			// 記録が見つからない（置き場が違う等）。確かめられないので、今までどおり ok を信じる
+			fmt.Fprintln(w, " … した（claude respawn で同じ会話のまま起こし、チャネルで渡した。会話の記録が見つからず、入ったかは確かめていない）")
 			return true
 		}
-		last = err
-		if !time.Now().Before(end) {
-			break
+		for end := time.Now().Add(channelConfirm); time.Now().Before(end); time.Sleep(time.Second) {
+			if channelEnqueued(d.SessionID) > before {
+				fmt.Fprintln(w, " … した（claude respawn で同じ会話のまま起こし、チャネルで渡した。会話の記録に入ったのを確かめた）")
+				return true
+			}
 		}
+		fmt.Fprintf(w, " … チャネルは ok を返したが、%d 秒たっても会話の記録に入らない（%d 回目）", int(channelConfirm.Seconds()), attempt)
 	}
-	fmt.Fprintln(w, " … claude respawn で起こしたが、チャネルが応えないので次の回に:", last)
+	fmt.Fprintln(w, " … 渡し切れないので次の回に")
 	return false
 }
 
 // claude respawn のあと、一覧に出てチャネルが応えるまで待つ長さ。テストで縮める。
 var respawnWait = 45 * time.Second
+
+// チャネルで渡したあと、会話の記録に入るのを待つ長さと、渡し直す回数。テストで縮める。
+// ★待つ長さを短くしすぎると、遅れて入ったものに重ねて渡し、二重になる。
+var (
+	channelConfirm = 30 * time.Second
+	channelTries   = 3
+)
 
 // 常駐しないセッションを、届け・定時のために初めて起こす。最初の指示と渡す指示の両方を付けて渡す。
 // 起きた会話の ID を返す（一覧にまだ出なければ ""。名前で run が拾う）。
