@@ -103,11 +103,25 @@ func cmdAttach(arg string) error {
 		return err
 	}
 	// tsumugi 止める --しばらく の印は、人が tsumugi a で起こしたら外す
-	if af, _, managed := findSpec(affs, name); managed {
+	if af, s, managed := findSpec(affs, name); managed {
 		if released, err := releaseHold(af, name); err != nil {
 			return err
 		} else if released {
 			fmt.Fprintf(os.Stderr, "%s の止めておく印を外しました\n", name)
+		}
+		// クラウドのセッションは手元で開かない（cloud.go）。開く場所を出す
+		if s.cloud() {
+			st, err := loadState(af)
+			if err != nil {
+				return err
+			}
+			id := st.Sessions[name].SessionID
+			if id == "" {
+				fmt.Printf("%s はクラウドのセッションで、まだ起こしていません（次の tsumugi run がクラウドで起こします）\n", name)
+				return nil
+			}
+			fmt.Printf("%s はクラウドのセッションです。開くのは https://claude.ai/code/%s （手元へ引き寄せるなら claude --teleport %s）\n", name, id, id)
+			return nil
 		}
 	}
 	all, err := listAllAgents()

@@ -27,6 +27,7 @@ type action struct {
 	Args        []string
 	Trust       bool // 起こす直前に作業フォルダを信頼済みにする（所属.json の「信頼する」）
 	Refit       bool // 起こし直すが、claude 側が設定を覚えていないので、紡のフラグを付け直す（同じ ID のまま）
+	Cloud       bool // クラウドで起こす（cloud.go）
 	// 付け直し（Refit）に使う
 	af        affiliation
 	spec      sessionSpec
@@ -62,6 +63,14 @@ func planOn(machine string, affs []affiliation, states map[string]affState, all 
 		for _, s := range af.Sessions {
 			want[s.Name] = true // よそのマシンのものも「要る」なので止めない
 			if !s.here(machine) {
+				continue
+			}
+			if s.cloud() {
+				// ★クラウドのセッションは claude agents に出ないので、動いているかは見えない。
+				// 控えの ID があれば、クラウドに居るとみなして何もしない（眠っても会話は戻る）。起こすのは一度も起こしていないときだけ
+				if ss := st.Sessions[s.Name]; s.resident() && !ss.Held && ss.SessionID == "" {
+					acts = append(acts, action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir, Verb: "クラウドで起こす", Cloud: true, af: af, spec: s})
+				}
 				continue
 			}
 			if _, ok := running[s.Name]; ok {
@@ -309,6 +318,27 @@ func reconcile(w io.Writer, affs []affiliation, dry bool) error {
 	}
 	var firstErr error
 	for _, act := range acts {
+		if act.Cloud {
+			fmt.Fprintf(w, "%s/%s: %s", act.Affiliation, act.Name, act.Verb)
+			if dry {
+				fmt.Fprintf(w, "（しない）claude --cloud …（作業フォルダ %s）\n", act.Dir)
+				continue
+			}
+			id, ok := startCloud(w, act.af, act.spec, "")
+			if !ok {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("%s/%s をクラウドで起こせませんでした", act.Affiliation, act.Name)
+				}
+				continue
+			}
+			st := states[act.Affiliation]
+			if st.Sessions == nil {
+				st.Sessions = map[string]sessionState{}
+			}
+			st.Sessions[act.Name] = sessionState{SessionID: id}
+			states[act.Affiliation] = st
+			continue
+		}
 		// ★Claude Code の自動更新は、背景のサービスを建て直して、止まったセッションを自分で起こし直す。
 		// そのすぐ後だと、一覧にまだ出ていないだけのセッションへ --resume して写しを作る
 		// （2026-11-21 07:48 実測: 2.1.330 への更新直後に 2 つの写しができた）。起こし直す前に少し待って見直す。

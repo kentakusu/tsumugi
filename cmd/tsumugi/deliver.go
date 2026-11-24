@@ -102,6 +102,9 @@ func loadQueue(af affiliation) ([]queued, error) {
 // Claude Code が写し（新しい会話 ID）を作ったときは、その ID を返す（呼ぶ側が控えを書き換える）。
 // 渡せなかった理由は w に書く。
 func deliverPrompt(w io.Writer, d delivery) (bool, string) {
+	if d.spec.cloud() {
+		return deliverCloud(w, d), ""
+	}
 	// チャネルで渡せれば、止めずに渡す（作業中でも、セッションの中で次のターンまで待ってくれる）。
 	if d.Running != nil {
 		if root, err := homeDir(); err == nil {
@@ -239,6 +242,9 @@ var (
 // 常駐しないセッションを、届け・定時のために初めて起こす。最初の指示と渡す指示の両方を付けて渡す。
 // 起きた会話の ID を返す（一覧にまだ出なければ ""。名前で run が拾う）。
 func startFresh(w io.Writer, af affiliation, s sessionSpec, prompt string) (string, bool) {
+	if s.cloud() {
+		return startCloud(w, af, s, prompt)
+	}
 	fmt.Fprint(w, " … まだ一度も起こしていないので、最初の指示と一緒に起こす")
 	if s.Trust {
 		if err := trustBeforeStart(io.Discard, action{Affiliation: af.ID, Name: s.Name, Dir: s.Dir}, false); err != nil {

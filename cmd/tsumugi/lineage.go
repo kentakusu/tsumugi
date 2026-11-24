@@ -302,6 +302,19 @@ func printListFull(w io.Writer, machine string, affs []affiliation, states map[s
 		if !r.here {
 			state, m = "（よそのマシン）", r.machine
 		}
+		if isCloudMachine(r.machine) {
+			m, id = "クラウド", r.cur
+			switch {
+			case r.held:
+				state = "止めてある（クラウドには居る）"
+			case r.cur == "" && r.resident:
+				state = "まだ起こしていない（次の run がクラウドで起こす）"
+			case r.cur == "":
+				state = "まだ起こしていない（定時・届けで起こす）"
+			default:
+				state = "クラウド（動いているかは見えない）"
+			}
+		}
 		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", r.no, r.name, r.aff, state, id, m, r.dir)
 	}
 	tw.Flush()
@@ -636,6 +649,32 @@ func renewSession(w io.Writer, affs []affiliation, name string) error {
 		st.Sessions = map[string]sessionState{}
 	}
 	ss := st.Sessions[name]
+	if spec.cloud() {
+		// クラウドのセッションは止めも外しもできない（紡からは積むだけ）。控えを前の会話に回し、新しいセッションを立てる。
+		// 前のクラウドのセッションは claude.ai/code に残るので、要らなければ人がアーカイブする
+		old := ss.SessionID
+		if old != "" {
+			ss.Previous = append(ss.Previous, prevSession{ID: old, Until: time.Now().Format(time.RFC3339), Why: "tsumugi 新しく"})
+		}
+		ss.SessionID, ss.Held, ss.HeldAt = "", false, ""
+		extra := ""
+		if old != "" {
+			extra = "【紡】tsumugi 新しく で、前のクラウドのセッション（" + old + "）から新しいセッションに立て直しました。"
+		}
+		fmt.Fprintf(w, "%s/%s: ", af.ID, name)
+		id, ok := startCloud(w, af, spec, extra)
+		if !ok {
+			st.Sessions[name] = ss
+			saveState(af, st)
+			return fmt.Errorf("%s をクラウドで立て直せませんでした（次の tsumugi run がまた起こします）", name)
+		}
+		ss.SessionID = id
+		st.Sessions[name] = ss
+		if old != "" {
+			fmt.Fprintf(w, "前のクラウドのセッション %s は claude.ai/code に残っています。要らなければアーカイブしてください\n", old)
+		}
+		return saveState(af, st)
+	}
 	all, err := listAllAgents()
 	if err != nil {
 		return err

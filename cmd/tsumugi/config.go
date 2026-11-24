@@ -89,7 +89,8 @@ func (s sessionSpec) resident() bool { return s.Resident == nil || *s.Resident }
 
 // このマシンで動かすものか。
 func (s sessionSpec) here(machine string) bool {
-	return s.Machine == "" || strings.EqualFold(s.Machine, machine)
+	// クラウドのセッションは、その所属.json を持つ機の紡が扱う（cloud.go）
+	return s.Machine == "" || strings.EqualFold(s.Machine, machine) || isCloudMachine(s.Machine)
 }
 
 // 所属.json の中身。
