@@ -120,7 +120,9 @@ func cmdAttach(arg string) error {
 				fmt.Printf("%s はクラウドのセッションで、まだ起こしていません（次の tsumugi run がクラウドで起こします）\n", name)
 				return nil
 			}
-			fmt.Printf("%s はクラウドのセッションです。開くのは https://claude.ai/code/%s （手元へ引き寄せるなら claude --teleport %s）\n", name, id, id)
+			// ★claude --teleport はすすめない。手元に別の会話（写し）ができて、/exit するまで画面から抜けられず、
+			// 紡はその写しを「手で起こしたもの」として所属に足してしまう（2026-11-24 鈴木さんが試して実測）
+			fmt.Printf("%s はクラウドのセッションです。開くのは https://claude.ai/code/%s （ブラウザかスマホの Claude アプリで）\n", name, id)
 			return nil
 		}
 	}
