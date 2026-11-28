@@ -366,8 +366,13 @@ func cmdYui(args []string) error {
 	}
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
+		// ★macOS のローカルネットワークの許可が無いときは、直し方だけを出す。「人に知らせて待つ」を一緒に出すと、
+		// 読み手が直さずに待つ側に倒れる（2026-11-28 yumeyume-main の指摘）
+		if h := macLocalNetworkHint(runtime.GOOS, err); h != "" {
+			return fmt.Errorf("%s（%s）につながりません: %w%s", where, addr, err, h)
+		}
 		return fmt.Errorf("%s（%s）につながりません: %w\n"+
-			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください%s", where, addr, err, macLocalNetworkHint(runtime.GOOS, err))
+			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください", where, addr, err)
 	}
 	defer conn.Close()
 	secret, err := yuiSecretOf(conf)
