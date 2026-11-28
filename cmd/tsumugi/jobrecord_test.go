@@ -340,6 +340,19 @@ func TestDeliverRespawnsAndUsesChannel(t *testing.T) {
 
 // 錠の持ち主が落ちたか（Linux は /proc/<pid>/cmdline で見る）。
 func TestLockHolderAlive(t *testing.T) {
+	oh := holderProcess
+	t.Cleanup(func() { holderProcess = oh })
+	holderProcess = func(pid int) (bool, string, bool) {
+		switch pid {
+		case 400:
+			return true, `C:\Users\u\.local\bin\tsumugi.exe`, true
+		case 500:
+			return true, "bash", true
+		case 600:
+			return false, "", true
+		}
+		return false, "", false
+	}
 	dir := t.TempDir()
 	old := procCmdline
 	t.Cleanup(func() { procCmdline = old })
@@ -353,8 +366,12 @@ func TestLockHolderAlive(t *testing.T) {
 		{"linux", "100 2026-11-22T19:19:27+09:00", true},  // 紡として動いている
 		{"linux", "200 2026-11-22T19:19:27+09:00", false}, // pid が別のプロセスに使い回された
 		{"linux", "300 2026-11-22T19:19:27+09:00", false}, // プロセスが無い（WSL を起こし直したあと）
-		{"linux", "", true},        // 読めない中身は分からない＝動いているとみなす
-		{"windows", "300 x", true}, // ほかの土台は印の時刻に任せる
+		{"linux", "", true}, // 読めない中身は分からない＝動いているとみなす
+		// macOS・Windows はプロセスの見方（holderProcess）で見る
+		{"windows", "400 x", true},  // 紡として動いている
+		{"darwin", "500 x", false},  // pid が別のプロセスに使い回された
+		{"windows", "600 x", false}, // プロセスが無い
+		{"darwin", "700 x", true},   // 見えない（権限など）＝動いているとみなす
 	} {
 		if got := lockHolderAliveOn(c.goos, c.content); got != c.alive {
 			t.Fatalf("%s %q: %v のはず", c.goos, c.content, c.alive)

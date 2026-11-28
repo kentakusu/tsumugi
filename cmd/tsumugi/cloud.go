@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -34,19 +34,33 @@ var cloudIDPattern = regexp.MustCompile(`session_[A-Za-z0-9]{10,}`)
 
 // 新しいクラウドのセッションを立てて、その ID を返す。テストで差し替える。
 var cloudCreate = func(dir, prompt string) (string, error) {
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		return "", fmt.Errorf("作業フォルダ %s が git のリポジトリではありません（クラウドはリポジトリを持って起きる）", dir)
+	// リポジトリの中か（子フォルダでもよい）。.git があるかだけで見ると、リポジトリの子フォルダを断ってしまう
+	if out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output(); err != nil || strings.TrimSpace(string(out)) == "" {
+		return "", fmt.Errorf("作業フォルダ %s が git のリポジトリの中ではありません（クラウドはリポジトリを持って起きる）", dir)
 	}
 	screen, err := runInTerminal(dir, []string{"claude", "--cloud", prompt}, cleanEnv(os.Environ()), cloudCreateWait, func(s string) bool {
-		return cloudIDPattern.MatchString(s) && strings.Contains(s, "Created cloud session")
+		return (cloudIDPattern.MatchString(s) && strings.Contains(s, "Created cloud session")) || askedTrust(s)
 	})
 	if id := cloudIDPattern.FindString(screen); id != "" && strings.Contains(screen, "Created cloud session") {
 		return id, nil
+	}
+	if askedTrust(screen) {
+		// ★2026-11-28 Mac の yumeyume-main で実測: 未信頼の作業フォルダで「このフォルダを信頼しますか」の画面で止まり、
+		// 時間切れまで待ってから「起こせませんでした」とだけ出た。画面が出たらすぐ止め、直し方を出す
+		return "", fmt.Errorf("「このフォルダを信頼しますか」の画面で止まりました（作業フォルダ %s が未信頼）。"+
+			"所属.json のこのセッションに \"信頼する\": true を足すか、人が一度 claude をそのフォルダで開いて信頼してください", dir)
 	}
 	if err == nil {
 		err = errors.New("画面に session_… が出ませんでした")
 	}
 	return "", fmt.Errorf("%w。画面の最後: %s", err, tail(screen, 400))
+}
+
+// 画面にフォルダの信頼の確認が出ているか。★疑似端末の画面は、カーソルの移動で空白が抜けて
+// 「Yes,Itrustthisfolder」のように出る（2026-11-24 実測）ので、空白を除いて見る。
+func askedTrust(screen string) bool {
+	s := strings.ToLower(strings.Join(strings.Fields(screen), ""))
+	return strings.Contains(s, "trustthisfolder")
 }
 
 // クラウドのセッションを立てるのを待つ長さ（リポジトリを送る・VM を用意するのを含む）。

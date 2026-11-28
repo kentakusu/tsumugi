@@ -18,9 +18,6 @@ func lockHolderAlive(content string) bool {
 }
 
 func lockHolderAliveOn(goos, content string) bool {
-	if goos != "linux" {
-		return true
-	}
 	fields := strings.Fields(content)
 	if len(fields) == 0 {
 		return true
@@ -31,6 +28,16 @@ func lockHolderAliveOn(goos, content string) bool {
 	}
 	if pid == os.Getpid() {
 		return true
+	}
+	if goos != "linux" {
+		// ★macOS・Windows も、持ち主のプロセスが居なければすぐ奪う（2026-11-28 Mac の yumeyume-main で実測:
+		// クラウドで起こす途中で run が落ち、持ち主の pid が死んだまま錠が残って、約 40 分 run が全部止まった）。
+		// プロセスの名前に tsumugi が無ければ、pid が別のプロセスに使い回されたとみて奪う。分からなければ動いているとみなす。
+		exists, image, ok := holderProcess(pid)
+		if !ok {
+			return true
+		}
+		return exists && strings.Contains(strings.ToLower(image), "tsumugi")
 	}
 	b, err := os.ReadFile(procCmdline(pid))
 	if err != nil {

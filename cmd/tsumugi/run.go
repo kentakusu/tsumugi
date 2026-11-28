@@ -151,7 +151,14 @@ func startArgs(af affiliation, s sessionSpec) []string {
 	// ★無人のセッションでは、質問の画面（AskUserQuestion）が人の答えを待って止まる（askUserQuestionTimeout は
 	// 背景のセッションに効かない・2026-11-21 実測）。道具ごと使えなくし、聞くときは文で聞いてターンを終える。
 	args = append(args, "--disallowedTools", "AskUserQuestion")
-	args = append(args, "-n", s.Name, "--settings", string(settings), "--append-system-prompt", yuiRule+layerRule(af))
+	args = append(args, "-n", s.Name)
+	// ★Remote Control（スマホ・claude.ai の一覧）にも紡の名前で出す。-n だけでは、起こし直しや macOS で
+	// 自動の名前（ホスト名-形容詞-名詞）や会話の中身から付く題になることがある（2026-11-28 yumeyume-main の
+	// Mac の実測・鈴木さん「Remote Control の名前と紡の名前が合わない」）。--remote-control <名前> は、
+	// 公式の順で最初に効く名前（code.claude.com/docs/en/remote-control.md）。保存されたフラグに入るので、
+	// claude respawn でも同じ名前で戻る。
+	args = append(args, "--remote-control", s.Name)
+	args = append(args, "--settings", string(settings), "--append-system-prompt", yuiRule+layerRule(af))
 	if s.Permission != "" {
 		args = append(args, "--permission-mode", s.Permission)
 	}

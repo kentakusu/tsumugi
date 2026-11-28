@@ -188,6 +188,11 @@ func replaceSelf(bin []byte) error {
 	if err := os.WriteFile(tmp, bin, fi.Mode().Perm()|0o100); err != nil {
 		return err
 	}
+	// macOS は、入れ替える前に決まった識別子で署名し直す（macsign.go。しないとローカルネットワークの許可が外れる）
+	if err := signForMac(tmp); err != nil {
+		os.Remove(tmp)
+		return err
+	}
 	if runtime.GOOS == "windows" {
 		// ★.old の名前は毎回変える。チャネルの tsumugi channel がセッションの間ずっと前の版を掴むので、
 		// 名前が固定だと、2 回目の自己更新が掴まれた .old に上書きできず失敗した（2026-11-22 Windows 実測）。

@@ -103,7 +103,7 @@ func TestStartFreshCloud(t *testing.T) {
 // 作業フォルダが git のリポジトリでなければ、クラウドに立てない（立てる前に断る）。
 func TestCloudCreateNeedsRepo(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := cloudCreate(dir, "x"); err == nil || !strings.Contains(err.Error(), "git のリポジトリではありません") {
+	if _, err := cloudCreate(dir, "x"); err == nil || !strings.Contains(err.Error(), "git のリポジトリの中ではありません") {
 		t.Fatalf("git でないフォルダを断っていない: %v", err)
 	}
 	os.MkdirAll(filepath.Join(dir, ".git"), 0o700) // 対照の形だけ（実際には立てない）

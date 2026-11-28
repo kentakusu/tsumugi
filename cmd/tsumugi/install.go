@@ -164,9 +164,11 @@ func cmdInstall(dry, remove bool) error {
 			return uninstallSteps(dry, []file{f}, [][]string{{"launchctl", "bootout", target + "/" + launchdLabel}}, nil)
 		}
 		return installSteps(dry, []file{f}, [][]string{
+			// 決まった識別子で署名する（macsign.go。しないとローカルネットワークの許可が出せない）
+			{"codesign", "-f", "-s", "-", "--identifier", macSignID, e.Exe},
 			{"launchctl", "bootout", target + "/" + launchdLabel}, // 入れ直しのため。初回は失敗してよい
 			{"launchctl", "bootstrap", target, f.Path},
-		}, "")
+		}, "LAN の結につなぐなら、一度だけ「ローカルネットワーク」の許可が要ります（README の macOS の節）")
 	case "windows":
 		if remove {
 			return uninstallSteps(dry, nil, [][]string{{"schtasks", "/Delete", "/F", "/TN", unitName}}, nil)
@@ -196,7 +198,8 @@ func installSteps(dry bool, fs []file, cmds [][]string, note string) error {
 			continue
 		}
 		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
-		if err != nil && !(runtime.GOOS == "darwin" && i == 0) {
+		// macOS の launchctl bootout（2 つ目・入れ直しのため）は、初回は失敗してよい
+		if err != nil && !(runtime.GOOS == "darwin" && i == 1 && c[0] == "launchctl" && c[1] == "bootout") {
 			return fmt.Errorf("%q が失敗しました: %w: %s", c, err, out)
 		}
 		fmt.Printf("した: %q\n", c)

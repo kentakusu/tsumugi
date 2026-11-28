@@ -238,6 +238,18 @@ Claude Code は、初めて開くフォルダで「このフォルダを信頼�
 ★**`"信頼する": true` は、そのフォルダの中身（フック・MCP・CLAUDE.md）を人が見て良しとしたフォルダにだけ書いてください。**
 他人が書き換えられるフォルダ（共有フォルダ・clone したばかりのリポジトリ）に付けると、その中のフックが無人で動きます。
 
+### macOS で LAN の結につなぐ
+
+macOS は「ローカルネットワーク」の許可が無いと、LAN の相手へのつなぎを `connect: no route to host` で断ります。
+許可は実行ファイルの署名の識別子に付きますが、Go が作る実行ファイルの識別子は `a.out` で、そのままでは確認の画面も出ず、許可できません。
+
+- 紡は `tsumugi install` と自己更新（`tsumugi 更新 紡`）のたびに、`codesign -f -s - --identifier io.github.kentakusu.tsumugi` で署名し直します。
+  識別子が同じなら、一度許可すれば以後は押し直しが要りません（2026-11-28 Mac mini で実測）。
+- ★一度だけ、人が許可を押す必要があります。システム設定 → プライバシーとセキュリティ → ローカルネットワーク に紡が出ていれば許可します。
+  出ていなければ、同じ識別子の .app（Info.plist に `CFBundleIdentifier` と `NSLocalNetworkUsageDescription`）の中の実行ファイルを
+  launchd から起こして LAN へつなぐと、確認の画面が出ます（手順の詳しいものは yumeyume-main の記録）。
+- 署名の確かめ: `codesign -dv ~/.local/bin/tsumugi` の Identifier が `io.github.kentakusu.tsumugi` か。
+
 ### クラウドのセッション
 
 セッションの `"マシン"` を `"クラウド"`（または `"cloud"`）にすると、紡はそのセッションを claude.ai/code のクラウドで動かします。

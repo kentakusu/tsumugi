@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -366,7 +367,7 @@ func cmdYui(args []string) error {
 	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("%s（%s）につながりません: %w\n"+
-			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください", where, addr, err)
+			"★yui コマンドで .yui を直接開かないでください（デーモンが立てなくなります）。人に知らせて待ってください%s", where, addr, err, macLocalNetworkHint(runtime.GOOS, err))
 	}
 	defer conn.Close()
 	secret, err := yuiSecretOf(conf)
